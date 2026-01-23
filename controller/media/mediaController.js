@@ -12,20 +12,26 @@ exports.mediaModelProvider = async (req, res) => {
                 'id',
                 'modelName',
                 'modelType',
-                'model',
+                'featuresType',
                 'imageUrl',
                 'thumbnail',
                 'isPro',
                 'isActive',
-                'token',
-                'proToken',
-                'reduceToken'
             ],
             order: [['modelName', 'ASC']],
+            raw: true
+        });
+
+        // Ensure backward compatibility: modelType should contain the category (aiVideo etc.)
+        const formattedModels = findAllMediaModel.map(item => {
+            return {
+                ...item,
+                modelType: item.featuresType || item.modelType || 'other'
+            };
         });
 
         res.status(200).json({
-            data: findAllMediaModel
+            data: formattedModels
         })
     } catch (error) {
         console.log("---error---", error)
@@ -38,7 +44,7 @@ exports.mediaModelProvider = async (req, res) => {
 
 exports.mediaFeatureProvider = async (req, res) => {
     try {
-        let findAllMediaFeature = await AiMediaFeature.findAll({
+        const findAllMediaFeature = await AiMediaFeature.findAll({
             where: {
                 isActive: true,
             },
@@ -47,6 +53,7 @@ exports.mediaFeatureProvider = async (req, res) => {
                 'hashId',
                 'name',
                 'modelType',
+                'featuresType',
                 'model',
                 'prompt',
                 'imageSource',
@@ -54,17 +61,34 @@ exports.mediaFeatureProvider = async (req, res) => {
                 'defaultUserImage',
                 'imageRatio',
                 'imageResolution',
-                'isActive'
+                'isActive',
+                'position'
             ],
-            order: [['name', 'ASC']],
+            order: [['position', 'ASC'], ['createdAt', 'DESC']],
             raw: true
         });
 
-        // Grouping logic matching old patterns if needed
-        findAllMediaFeature = groupBy(findAllMediaFeature, "modelType");
+        // Map data: ensure modelType contains the category for app support
+        const formattedFeatures = findAllMediaFeature.map(item => {
+            const category = item.featuresType || item.modelType || 'other';
+            return {
+                ...item,
+                modelType: category 
+            };
+        });
+
+        // Grouping logic: group by the category name (e.g. aiVideo, aiImage)
+        const groupedFeatures = {};
+        formattedFeatures.forEach(item => {
+            const key = item.modelType; 
+            if (!groupedFeatures[key]) {
+                groupedFeatures[key] = [];
+            }
+            groupedFeatures[key].push(item);
+        });
 
         res.status(200).json({
-            data: findAllMediaFeature
+            data: groupedFeatures
         })
     } catch (error) {
         console.log("---error---", error)
