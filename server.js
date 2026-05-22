@@ -24,8 +24,8 @@ console.log("STEP 5");
 
 try {
 
-  const { apiLogger } = require("./middleware/apiLogs");
-  app.use(apiLogger);
+  // const { apiLogger } = require("./middleware/apiLogs");
+  // app.use(apiLogger);
 
   console.log("STEP 6");
 
