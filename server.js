@@ -30,6 +30,6 @@ app.use("/api/media", require("./routes/media.routes"));
 app.use("/api/conversation", require("./routes/conversation.routes"));
 app.use("/api/admin", require("./routes/admin.routes"));
 
-app.listen(port, () => {
+app.listen(port, "0.0.0.0", () => {
     console.log(`Server Running At PORT : ${port}`);
 });
