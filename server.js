@@ -64,12 +64,7 @@ console.log("✅ STEP 5 - Middlewares Loaded");
 ========================= */
 
 app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "🚀 API RUNNING SUCCESSFULLY",
-    port: PORT,
-    timestamp: new Date(),
-  });
+  res.send("API RUNNING");
 });
 
 /* =========================
