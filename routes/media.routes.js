@@ -8,7 +8,7 @@ const {
 } = require("../controller/media/mediaController");
 
 // Get Routes
-router.post('/models/getAll', mediaModelProvider);
+router.get('/models/getAll', mediaModelProvider);
 router.post('/features/getAll', mediaFeatureProvider);
 
 // Add Routes
