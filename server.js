@@ -46,6 +46,9 @@ app.use(cors({
   credentials: true,
 }));
 
+const {apiLogger} = require("./middleware/apiLogs");
+app.use(apiLogger);
+
 app.use(cookieParser());
 
 app.use(express.json({
