@@ -10,6 +10,7 @@ const dialect = process.env.DB_DIALECT;
 
 const sequelize = new Sequelize(dbName, username, pass, {
   host: dbHost,
+  port: 3306,
   dialect: dialect,
   logging: false, // set to true to see raw SQL logs
 });
