@@ -47,7 +47,8 @@ exports.runAssiV1 = async (req, res) => {
                         Authorization: `Bearer ${token}`,
                         'OpenAI-Beta': 'assistants=v2',
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    data: {}
                 });
                 const pickThredData = pick(createThread.data, 'id')
                 await reduceToken(body.deviceId, uniqueId, "openAi", `${assiName}`, true, rToken)
