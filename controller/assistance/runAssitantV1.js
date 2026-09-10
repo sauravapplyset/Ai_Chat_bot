@@ -7,11 +7,6 @@ const commonFunction = require("../../common/commonFunction");
 
 /**
  * runAssiV1 - Migrated to OpenAI Responses API using Cache Key (previous_response_id)
- *
- * NOTE: 
- * 1. assistantId in DB must be the Prompt ID (pmpt_...)
- * 2. `threadId` sent to the client is now the Response ID (resp_...)
- * 3. We use `previous_response_id` to chain conversations, which is faster and caches context.
  */
 exports.runAssiV1 = async (req, res) => {
     const tag = `[runAssiV1]`;
@@ -47,6 +42,10 @@ exports.runAssiV1 = async (req, res) => {
         const token = apiSendUserDetails.isSubscribe == 1 ? openAiToken.proToken : openAiToken.token;
         const rToken = modelTokens.reduceToken;
         const assiName = modelTokens.name;
+        
+        const targetModel = "gpt-5.6-luna"; // Forced model override
+
+        console.log(`${tag} 💬 User [${body.deviceId}] interacting with Assistant [${assiName}] | Model Set: ${targetModel}`);
 
         // ── 3. Validate message body & Moderation ───────────────────────────────
         if (!body || !body.message) {
@@ -78,6 +77,7 @@ exports.runAssiV1 = async (req, res) => {
         ];
 
         const requestPayload = {
+            model: targetModel, // Overriding the default prompt model
             prompt: { id: promptId },
             input: inputPayload
         };
@@ -93,7 +93,7 @@ exports.runAssiV1 = async (req, res) => {
         }
 
         // ── 5. Call Responses API ──────────────────────────────────────────────
-        console.log(`${tag} 🔄 Calling Responses API...`);
+        console.log(`${tag} 🔄 Calling Responses API | Model: ${targetModel} | User: ${body.deviceId} | Assistant: ${assiName}`);
         try {
             const responseRes = await axios.post(
                 'https://api.openai.com/v1/responses',
@@ -108,13 +108,14 @@ exports.runAssiV1 = async (req, res) => {
 
             // The new Response ID becomes our new Cache Key for the next message
             const newResponseId = responseRes.data.id;
+            const returnedModel = responseRes.data.model || 'unknown'; // Log what model OpenAI actually used
 
             const outputText =
                 responseRes.data.output_text ||
                 responseRes.data.output?.find(item => item.type === 'message')?.content?.find(c => c.type === 'output_text')?.text ||
                 "";
 
-            console.log(`${tag} ✅ Response received | newResponseId: ${newResponseId}`);
+            console.log(`${tag} ✅ Response received | newResponseId: ${newResponseId} | Model Used by OpenAI: ${returnedModel}`);
 
             updateUserData = await checkToken(body.deviceId);
 
