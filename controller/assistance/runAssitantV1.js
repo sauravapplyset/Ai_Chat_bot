@@ -55,8 +55,8 @@ exports.runAssiV1 = async (req, res) => {
                 body["threadId"] = pickThredData.id
             } catch (error) {
                 console.log("--error--", error)
-                res.status(400).json({
-                    message: error.response.data.error.message
+                return res.status(400).json({
+                    message: error?.response?.data?.error?.message || error?.message || "An error occurred"
                 })
             }
         }
@@ -98,9 +98,9 @@ If you're using the term in a different context, could you please provide more d
                         }
                     });
                 } catch (error) {
-                    console.log("---QUERY--", error.response.data);
-                    res.status(400).json({
-                        message: error.response.data.error.message,
+                    console.log("---QUERY--", error?.response?.data || error?.message);
+                    return res.status(400).json({
+                        message: error?.response?.data?.error?.message || error?.message || "An error occurred",
                         status: 400
                     });
                 }
@@ -122,8 +122,8 @@ If you're using the term in a different context, could you please provide more d
                     );
                 } catch (error) {
                     console.log("---error.response---", error)
-                    res.status(400).json({
-                        message: error.response.data.error.message,
+                    return res.status(400).json({
+                        message: error?.response?.data?.error?.message || error?.message || "An error occurred",
                         status: 400
                     });
                 }
@@ -155,9 +155,9 @@ If you're using the term in a different context, could you please provide more d
                             return;
                         }
                     } catch (error) {
-                        console.log("---error--", error.response.data);
-                        res.status(400).json({
-                            message: error.response.data.error.message,
+                        console.log("---error--", error?.response?.data || error?.message);
+                        return res.status(400).json({
+                            message: error?.response?.data?.error?.message || error?.message || "An error occurred",
                             status: 400
                         });
                     }
@@ -192,8 +192,8 @@ If you're using the term in a different context, could you please provide more d
                 })
             } catch (error) {
                 console.log("--error---", error)
-                res.status(400).json({
-                    message: error.response.data.error.message
+                return res.status(400).json({
+                    message: error?.response?.data?.error?.message || error?.message || "An error occurred"
                 })
             }
 
