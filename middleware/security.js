@@ -2,17 +2,25 @@
 // Bot / scanner protection. Runs before every other middleware so junk
 // requests never reach the logger, body parser or DB.
 //
-// Layers (all in-memory, per Cloud Run instance, never touches the DB):
-//   1. Hard block list + temporary bans (single IP and whole /24 subnet)
+// Layers (checked in memory only; the DB is never queried per request):
+//   1. Hard block list + permanent IP bans + temporary /24 subnet bans
 //   2. Scanner paths and scanner tool user-agents -> reject + strike
 //   3. Only "/" and "/api/..." are routed further
-//   4. Per-IP request rate limit
-//   5. Behaviour: too many 401/403/404/409 responses from one IP -> ban
+//   4. App-only: /api requests without the app signature must come from a native
+//      app HTTP client, not a browser / curl / Postman / script
+//   5. Per-IP request rate limit
+//   6. Behaviour: too many 401/403/404/409 responses from one IP -> ban
+//
+// IP bans are permanent: stored in the security_bans table, loaded into memory at
+// startup and refreshed every few minutes, so they survive restarts and deploys and
+// are shared by every Cloud Run instance. Genuine app requests (valid signature)
+// still pass a banned IP, because real users can share an IP with an attacker.
 //
 // Every rejection looks exactly like the normal "Route Not Found" 404, so a
-// banned client cannot tell it is banned, let alone for how long.
+// banned client cannot tell it is banned.
 
 const CryptoJS = require("crypto-js");
+const SecurityBan = require("../model/securityBan.model");
 
 const toInt = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
 const MIN = 60 * 1000;
@@ -33,7 +41,12 @@ const ALLOWED_IPS = new Set(
 const SCAN_STRIKE_LIMIT = toInt(process.env.SCAN_STRIKE_LIMIT, 3);       // scanner hits before ban
 const ERROR_STRIKE_LIMIT = toInt(process.env.ERROR_STRIKE_LIMIT, 30);    // 401/403/404/409 before ban
 const STRIKE_WINDOW_MS = toInt(process.env.SCAN_STRIKE_WINDOW_MIN, 10) * MIN;
-const BAN_MS = toInt(process.env.SCAN_BAN_HOURS, 36) * HOUR;
+// Permanent unless SCAN_BAN_HOURS is set
+const BAN_MS = process.env.SCAN_BAN_HOURS ? toInt(process.env.SCAN_BAN_HOURS, 36) * HOUR : Infinity;
+const BAN_LABEL = BAN_MS === Infinity ? "permanently" : `for ${BAN_MS / HOUR}h`;
+const MAX_BANS = toInt(process.env.SECURITY_MAX_BANS, 200000);
+// APP_ONLY=0 switches off the app-only gate without a code change
+const APP_ONLY = process.env.APP_ONLY !== "0";
 const SUBNET_BAN_IPS = toInt(process.env.SUBNET_BAN_IPS, 3);             // banned IPs in one /24 before the /24 is banned
 // Shorter than BAN_MS: a /24 can also hold real users (shared mobile IPs)
 const SUBNET_BAN_MS = toInt(process.env.SUBNET_BAN_HOURS, 6) * HOUR;
@@ -57,6 +70,12 @@ const SCANNER_PATTERN = new RegExp(
 
 // Attack / recon tools. Real app traffic comes from okhttp, Dart, CFNetwork etc.
 const SCANNER_UA = /(sqlmap|nikto|nmap|masscan|zgrab|zmap|nuclei|wpscan|dirbuster|gobuster|ffuf|feroxbuster|wfuzz|acunetix|nessus|openvas|netsparker|qualys|whatweb|l9explore|l9tcpid|censys|expanse|odin\.io|internet-measurement|python-requests|python-urllib|aiohttp|go-http-client|libwww-perl|java\/1\.|fasthttp)/i;
+
+// Clients that are never the app: browsers, bots, and manual / scripted HTTP tools.
+// The app talks through a native HTTP client (okhttp on Android, Dart, CFNetwork /
+// Alamofire on iOS), none of which send these.
+const NON_APP_UA = /(mozilla|curl|wget|postman|insomnia|httpie|thunder client|python|go-http|java\/|node-fetch|undici|axios|ruby|perl|php|powershell|winhttp|libcurl|bot|spider|crawl|slurp|scan)/i;
+const looksLikeApp = (ua) => !!ua && !NON_APP_UA.test(ua);
 
 // Google load balancer / health-check ranges. If one of these shows up as the
 // client IP, TRUST_PROXY_HOPS is wrong; never ban it or every user gets blocked.
@@ -87,8 +106,8 @@ const subnetHits = new Map();   // "a.b.c" -> Map(key -> bannedAt)
 const hits = new Map();         // key -> { count, start }
 
 // Map keeps insertion order, so the first key is the oldest entry
-const capSet = (map, key, value) => {
-  if (!map.has(key) && map.size >= MAX_TRACKED) map.delete(map.keys().next().value);
+const capSet = (map, key, value, max = MAX_TRACKED) => {
+  if (!map.has(key) && map.size >= max) map.delete(map.keys().next().value);
   map.set(key, value);
 };
 
@@ -136,10 +155,79 @@ const isBanned = (ip, key) => {
   return !!subnet && (subnetBans.get(subnet) || 0) > now;
 };
 
+/* ---------- Permanent ban storage (DB, batched; never on the request path) ---------- */
+
+const pendingBans = new Map(); // key -> row waiting to be written
+let dbReady = false;
+let lastLoadedAt = null;
+
+const loadBans = async (full) => {
+  const where = !full && lastLoadedAt ? { createdAt: { [require("sequelize").Op.gt]: lastLoadedAt } } : undefined;
+  const rows = await SecurityBan.findAll({
+    where,
+    attributes: ["ipKey", "createdAt"],
+    order: [["createdAt", "DESC"]],
+    limit: MAX_BANS,
+    raw: true,
+  });
+  if (full) {
+    // Rebuild so rows deleted from the table (unbans) take effect; keep temporary and unsaved bans
+    for (const [k, until] of bans) if (until === Infinity && !pendingBans.has(k)) bans.delete(k);
+  }
+  for (const r of rows.reverse()) capSet(bans, r.ipKey, Infinity, MAX_BANS);
+  if (rows.length) {
+    const newest = rows[rows.length - 1].createdAt;
+    if (!lastLoadedAt || newest > lastLoadedAt) lastLoadedAt = newest;
+  }
+  return rows.length;
+};
+
+const flushBans = async () => {
+  if (!dbReady || pendingBans.size === 0) return;
+  const batch = [...pendingBans.values()].slice(0, 500);
+  try {
+    await SecurityBan.bulkCreate(batch, { ignoreDuplicates: true });
+    for (const r of batch) pendingBans.delete(r.ipKey);
+  } catch (err) {
+    console.error("[security] could not save bans:", err.message);
+  }
+};
+
+const initBanStore = async () => {
+  try {
+    await SecurityBan.sync(); // CREATE TABLE IF NOT EXISTS
+    dbReady = true;
+    const n = await loadBans(true);
+    console.log(`[security] loaded ${n} permanent bans`);
+  } catch (err) {
+    console.error("[security] ban store unavailable, retrying in 1 min:", err.message);
+    setTimeout(initBanStore, MIN).unref();
+  }
+};
+
+if (BAN_MS === Infinity && process.env.SECURITY_DB !== "0") {
+  initBanStore();
+  setInterval(flushBans, 15 * 1000).unref();
+  let ticks = 0;
+  setInterval(() => {
+    if (!dbReady) return;
+    ticks += 1;
+    loadBans(ticks % 12 === 0).catch((err) => console.error("[security] ban refresh failed:", err.message));
+  }, 5 * MIN).unref();
+}
+
 const ban = (ip, key, req, reason) => {
   const now = Date.now();
-  capSet(bans, key, now + BAN_MS);
-  securityLog(`[security] 🚫 Banned ${key} for ${BAN_MS / HOUR}h | ${reason} | path: ${req.originalUrl} | ua: ${req.headers["user-agent"] || "-"} | xff: ${req.headers["x-forwarded-for"] || "-"}`);
+  capSet(bans, key, now + BAN_MS, MAX_BANS);
+  if (BAN_MS === Infinity) {
+    capSet(pendingBans, key, {
+      ipKey: key.slice(0, 64),
+      reason: reason.slice(0, 64),
+      path: String(req.originalUrl || "").slice(0, 255),
+      userAgent: String(req.headers["user-agent"] || "").slice(0, 255),
+    });
+  }
+  securityLog(`[security] 🚫 Banned ${key} ${BAN_LABEL} | ${reason} | path: ${req.originalUrl} | ua: ${req.headers["user-agent"] || "-"} | xff: ${req.headers["x-forwarded-for"] || "-"}`);
 
   // Same /24 keeps sending new attackers -> ban the whole /24
   const subnet = subnetOf(ip);
@@ -229,12 +317,18 @@ const guard = (req, res, next) => {
     return notFound(res);
   }
 
-  // 4. Per-IP flood protection
+  // 4. App-only: unsigned /api calls must come from the app's native HTTP client
+  if (APP_ONLY && path.startsWith("/api/") && !looksLikeApp(req.headers["user-agent"]) && !hasAppSignature(req)) {
+    addStrike(errorStrikes, ERROR_STRIKE_LIMIT, ip, key, req, "non-app client on /api");
+    return notFound(res);
+  }
+
+  // 5. Per-IP flood protection
   if (isRateLimited(ip, key)) {
     return res.status(429).json({ message: "Too many requests, please try again later." });
   }
 
-  // 5. Behaviour: an IP that keeps hitting unknown routes / failing auth gets banned
+  // 6. Behaviour: an IP that keeps hitting unknown routes / failing auth gets banned
   res.on("finish", () => {
     if (SUSPICIOUS_STATUS.has(res.statusCode)) {
       addStrike(errorStrikes, ERROR_STRIKE_LIMIT, ip, key, req, `too many ${res.statusCode} responses`);
