@@ -37,17 +37,9 @@ const app = express();
 
 const PORT = process.env.PORT || 8080;
 
-// Cloud Run sits in front of the app; trust its hop so req.ip is the real client IP
-app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS || 1));
-app.disable("x-powered-by");
-
 /* =========================
    MIDDLEWARES
 ========================= */
-
-// Must stay first: drops scanner/bot traffic before logging, parsing or DB
-const { securityGuard } = require("./middleware/security");
-app.use(securityGuard);
 
 app.use(cors({
   origin: "*",
@@ -167,11 +159,10 @@ app.use((err, req, res, next) => {
   console.error("❌ EXPRESS ERROR HANDLER");
   console.error(err);
 
-  // Never expose internal error details; malformed JSON etc. gets a plain 400
-  const status = err.status >= 400 && err.status < 500 ? err.status : 500;
-  res.status(status).json({
+  res.status(500).json({
     success: false,
-    message: status === 500 ? "Internal Server Error" : "Bad Request",
+    message: "Internal Server Error",
+    error: err.message,
   });
 
 });
