@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { middAuth } = require("../middleware/auth");
+const { verifyAdmin } = require("../middleware/admin.auth");
 const { 
     mediaModelProvider, 
     mediaFeatureProvider, 
@@ -12,7 +13,7 @@ router.get('/models/getAll', mediaModelProvider);
 router.post('/features/getAll', mediaFeatureProvider);
 
 // Add Routes
-router.post('/models/add', addMediaModel);
-router.post('/features/add', addMediaFeature);
+router.post('/models/add', verifyAdmin, addMediaModel);
+router.post('/features/add', verifyAdmin, addMediaFeature);
 
 module.exports = router;

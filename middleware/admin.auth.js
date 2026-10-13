@@ -9,7 +9,7 @@ exports.verifyAdmin = async (req, res, next) => {
         if (Token) {
 
             const decoded = jwt.verify(Token, process.env.ADMIN_AUTH_TOKEN);
-            const data = await Admin.findOne({ id: decoded.data });
+            const data = await Admin.findOne({ where: { id: decoded.data } });
 
             if (data) {
                 const decryptToken = data.token;

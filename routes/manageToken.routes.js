@@ -1,10 +1,10 @@
 const router = require('express').Router();
-// const {middAuth} = require("../middleware/auth");
+const { verifyAdmin } = require("../middleware/admin.auth");
 const { tokenAndModel } = require("../controller/manageTokens/get");
 const { updateToken } = require("../controller/manageTokens/update");
 
-
-router.post('/gettokens',tokenAndModel);
-router.post('/updatetokens',updateToken);
+// These return / change provider API keys: admin only
+router.post('/gettokens', verifyAdmin, tokenAndModel);
+router.post('/updatetokens', verifyAdmin, updateToken);
 
 module.exports = router;
