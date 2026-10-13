@@ -12,6 +12,8 @@
 // Every rejection looks exactly like the normal "Route Not Found" 404, so a
 // banned client cannot tell it is banned, let alone for how long.
 
+const CryptoJS = require("crypto-js");
+
 const toInt = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -179,6 +181,18 @@ const isRateLimited = (ip, key) => {
   return h.count > (isSharedEgress(ip) ? RATE_LIMIT * 5 : RATE_LIMIT);
 };
 
+// The app sends x-request-id = AES(deviceId, SECRET_KEY); bots cannot produce a value that
+// decrypts. Checked in memory only (no DB); middAuth still does the full check later.
+const hasAppSignature = (req) => {
+  const sig = req.headers["x-request-id"];
+  if (!sig || typeof sig !== "string" || sig.length > 512 || !process.env.SECRET_KEY) return false;
+  try {
+    return CryptoJS.AES.decrypt(sig, process.env.SECRET_KEY).toString(CryptoJS.enc.Utf8).length > 0;
+  } catch (err) {
+    return false;
+  }
+};
+
 // Identical to the 404 handler in server.js, so blocked and banned clients see nothing special
 const notFound = (res) => res.status(404).json({ success: false, message: "Route Not Found" });
 
@@ -192,8 +206,10 @@ const guard = (req, res, next) => {
 
   if (ALLOWED_IPS.has(ip.toLowerCase())) return next();
 
-  // 1. Permanently blocked or temporarily banned IPs / subnets
-  if (BLOCKED_IPS.has(ip) || isBanned(ip, key)) return notFound(res);
+  // 1. Permanently blocked or temporarily banned IPs / subnets.
+  // A banned IP can still be shared with real users, so genuine app requests get through.
+  if (BLOCKED_IPS.has(ip)) return notFound(res);
+  if (isBanned(ip, key) && !(path.startsWith("/api/") && hasAppSignature(req))) return notFound(res);
 
   // 2. Known scanner paths or scanner tools -> reject + strike towards a ban
   if (SCANNER_PATTERN.test(req.originalUrl || path)) {
