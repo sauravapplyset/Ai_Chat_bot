@@ -2,6 +2,26 @@
 const logger = require('../logger/winston');
 const ApiLog = require('../model/apilog.model');
 
+// Keep log rows small: long strings (base64 images, long chats) are cut, so a
+// 50 MB request cannot fill the database.
+const MAX_STRING = 500;
+const MAX_DEPTH = 4;
+const shrink = (value, depth = 0) => {
+  if (typeof value === 'string') {
+    return value.length > MAX_STRING ? `${value.slice(0, MAX_STRING)}… [${value.length} chars]` : value;
+  }
+  if (!value || typeof value !== 'object') return value;
+  if (depth >= MAX_DEPTH) return '[…]';
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 20).map((v) => shrink(v, depth + 1));
+    if (value.length > 20) items.push(`… [${value.length} items]`);
+    return items;
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(value).slice(0, 50)) out[k] = shrink(v, depth + 1);
+  return out;
+};
+
 exports.apiLogger = (req, res, next) => {
   const startHrTime = process.hrtime();
   const startCpu = process.cpuUsage();
@@ -24,11 +44,11 @@ exports.apiLogger = (req, res, next) => {
 
     try {
       await ApiLog.create({
-        deviceId: deviceId,
+        deviceId: String(deviceId).slice(0, 255),
         method: req.method,
-        url: req.originalUrl,
+        url: String(req.originalUrl).slice(0, 255),
         statusCode: res.statusCode,
-        body: req.body,
+        body: shrink(req.body),
         responseTimeMs: elapsedMs,
         cpuUserTimeMs: cpuUserMs,
         cpuSystemTimeMs: cpuSystemMs,

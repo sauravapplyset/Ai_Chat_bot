@@ -23,6 +23,14 @@ exports.runAssiV1 = async (req, res) => {
         const userDetails = await checkToken(req.body.deviceId);
         const apiSendUserDetails = pick(userDetails, ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate']);
 
+        if (!userDetails) {
+            return res.status(400).json({ message: "Unauthorized" });
+        }
+        // Same response as the other chat routes when the balance is used up
+        if (!(userDetails.reminToken > 0)) {
+            return res.status(400).json({ message: "Your Quota is Over" });
+        }
+
         console.log(`${tag} ✅ User found | isSubscribe: ${apiSendUserDetails.isSubscribe} | plan: ${apiSendUserDetails.planType}`);
 
         // ── 2. Find assistant in DB ───────────────────────────────────────────
@@ -89,7 +97,10 @@ exports.runAssiV1 = async (req, res) => {
         } else {
             console.log(`${tag} ✨ No previous Cache Key, starting fresh response...`);
             // Deduct tokens when starting a completely new thread/chat
-            await reduceToken(body.deviceId, uniqueId, "openAi", `${assiName}`, true, rToken);
+            const notEnough = await reduceToken(body.deviceId, uniqueId, "openAi", `${assiName}`, true, rToken);
+            if (notEnough === true) {
+                return res.status(400).json({ message: "Your Quota is Over" });
+            }
         }
 
         // ── 5. Call Responses API ──────────────────────────────────────────────

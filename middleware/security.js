@@ -45,6 +45,9 @@ const STRIKE_WINDOW_MS = toInt(process.env.SCAN_STRIKE_WINDOW_MIN, 10) * MIN;
 const BAN_MS = process.env.SCAN_BAN_HOURS ? toInt(process.env.SCAN_BAN_HOURS, 36) * HOUR : Infinity;
 const BAN_LABEL = BAN_MS === Infinity ? "permanently" : `for ${BAN_MS / HOUR}h`;
 const MAX_BANS = toInt(process.env.SECURITY_MAX_BANS, 200000);
+// Paid AI calls per device per minute; a person cannot type faster than this, a script can
+const AI_RATE_LIMIT = toInt(process.env.AI_RATE_PER_MIN, 20);
+const AI_PATH = /^\/api\/(conversation\/|assi\/runassi|thirdparty\/|plan\/subscribe)/i;
 // APP_ONLY=0 switches off the app-only gate without a code change
 const APP_ONLY = process.env.APP_ONLY !== "0";
 const SUBNET_BAN_IPS = toInt(process.env.SUBNET_BAN_IPS, 3);             // banned IPs in one /24 before the /24 is banned
@@ -104,6 +107,7 @@ const bans = new Map();         // key -> bannedUntil
 const subnetBans = new Map();   // "a.b.c" -> bannedUntil
 const subnetHits = new Map();   // "a.b.c" -> Map(key -> bannedAt)
 const hits = new Map();         // key -> { count, start }
+const deviceHits = new Map();   // x-request-id -> { count, start }
 
 // Map keeps insertion order, so the first key is the oldest entry
 const capSet = (map, key, value, max = MAX_TRACKED) => {
@@ -136,7 +140,8 @@ setInterval(() => {
   for (const [k, until] of subnetBans) if (until <= now) subnetBans.delete(k);
   for (const store of [scanStrikes, errorStrikes])
     for (const [k, s] of store) if (now - s.first > STRIKE_WINDOW_MS) store.delete(k);
-  for (const [k, h] of hits) if (now - h.start > RATE_WINDOW_MS) hits.delete(k);
+  for (const store of [hits, deviceHits])
+    for (const [k, h] of store) if (now - h.start > RATE_WINDOW_MS) store.delete(k);
   for (const [k, ips] of subnetHits) {
     for (const [ip, at] of ips) if (now - at > HOUR) ips.delete(ip);
     if (ips.size === 0) subnetHits.delete(k);
@@ -326,6 +331,18 @@ const guard = (req, res, next) => {
   // 5. Per-IP flood protection
   if (isRateLimited(ip, key)) {
     return res.status(429).json({ message: "Too many requests, please try again later." });
+  }
+
+  // 5b. Per-device limit on paid AI routes (stops a stolen device signature from draining credits)
+  const sig = req.headers["x-request-id"];
+  if (AI_PATH.test(path) && typeof sig === "string" && sig) {
+    const now = Date.now();
+    const d = deviceHits.get(sig);
+    if (!d || now - d.start > RATE_WINDOW_MS) {
+      capSet(deviceHits, sig, { count: 1, start: now });
+    } else if (++d.count > AI_RATE_LIMIT) {
+      return res.status(429).json({ message: "Too many requests, please try again later." });
+    }
   }
 
   // 6. Behaviour: an IP that keeps hitting unknown routes / failing auth gets banned

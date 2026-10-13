@@ -54,6 +54,20 @@ exports.planSubscribe = async (req, res) => {
                         status: 400
                     })
                 } else {
+                    // Same plan still active: repeated calls (retries, restore purchase, abuse)
+                    // must not stack tokens again. Renewals arrive near expiry and still go through.
+                    const activeUntil = findUserDetails.expireDate ? moment(findUserDetails.expireDate) : null;
+                    if (findUserDetails.isSubscribe == 1 &&
+                        findUserDetails.planType === findPlan.planSlug &&
+                        activeUntil && activeUntil.isAfter(moment().add(1, "day"))) {
+                        console.warn(`[subscribe] repeat upgrade ignored | deviceId: ${deviceId} | plan: ${findPlan.planSlug}`);
+                        const sameUser = await User.findOne({ where: { deviceId: deviceId } })
+                        return res.status(200).json({
+                            message: "Plan is Upgrade",
+                            data: sameUser.toJSON()
+                        })
+                    }
+
                     const currentDate = moment();
                     // const expireDate = moment(findUserDetails.expireDate);
                     // const checkDate = expireDate.isAfter(currentDate)

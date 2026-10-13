@@ -49,10 +49,22 @@ app.disable("x-powered-by");
 const { securityGuard } = require("./middleware/security");
 app.use(securityGuard);
 
+// The mobile app is not affected by CORS. Browsers get no CORS headers, so no website
+// can call this API from a visitor's browser. Allow specific sites via CORS_ORIGINS="https://a.com,https://b.com".
+const corsOrigins = (process.env.CORS_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean);
 app.use(cors({
-  origin: "*",
-  credentials: true,
+  origin: corsOrigins.length ? corsOrigins : false,
 }));
+
+app.use((req, res, next) => {
+  res.set({
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Strict-Transport-Security": "max-age=31536000",
+  });
+  next();
+});
 
 const {apiLogger} = require("./middleware/apiLogs");
 app.use(apiLogger);
