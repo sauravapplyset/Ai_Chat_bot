@@ -18,13 +18,17 @@ exports.apiLogger = (req, res, next) => {
 
     logger.info(logMsg);
 
+    // GET requests have no body in Express 5, and deviceId is required by the table
+    const deviceId = req.body?.deviceId;
+    if (!deviceId) return;
+
     try {
       await ApiLog.create({
-        deviceId:req.body.deviceId,
+        deviceId: deviceId,
         method: req.method,
         url: req.originalUrl,
         statusCode: res.statusCode,
-        body:req.body,
+        body: req.body,
         responseTimeMs: elapsedMs,
         cpuUserTimeMs: cpuUserMs,
         cpuSystemTimeMs: cpuSystemMs,
