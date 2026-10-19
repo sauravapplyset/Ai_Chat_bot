@@ -1,9 +1,13 @@
 const axios = require("axios");
 const { checkToken, reduceToken } = require("../../helper/common");
 const { pick } = require("lodash");
-const { getToken, getModelToken, getAssToken } = require("../../config/manageToken");
+const { getModelToken, getActiveModel, getAssToken } = require("../../config/manageToken");
 const AssistantModel = require("../../model/assistanceModel");
 const commonFunction = require("../../common/commonFunction");
+const { sendError, sendProviderError } = require("../../helper/statusCodes");
+
+// Used when an assistant has no model chosen in the admin panel, or its model is inactive
+const DEFAULT_ASSISTANT_MODEL = process.env.ASSISTANT_DEFAULT_MODEL || "gpt-5.6-luna";
 
 /**
  * runAssiV1 - Migrated to OpenAI Responses API using Cache Key (previous_response_id)
@@ -28,7 +32,7 @@ exports.runAssiV1 = async (req, res) => {
         }
         // Same response as the other chat routes when the balance is used up
         if (!(userDetails.reminToken > 0)) {
-            return res.status(400).json({ message: "Your Quota is Over" });
+            return sendError(res, "USER_QUOTA_OVER");
         }
 
         console.log(`${tag} ✅ User found | isSubscribe: ${apiSendUserDetails.isSubscribe} | plan: ${apiSendUserDetails.planType}`);
@@ -40,34 +44,35 @@ exports.runAssiV1 = async (req, res) => {
 
         if (findAssi == null) {
             console.log(`${tag} ❌ Assistant not found in DB`);
-            return res.status(400).json({ message: "Assistant Not Found" });
+            return sendError(res, "ASSISTANT_NOT_FOUND");
         }
 
-        const openAiToken = await getModelToken("openAi");
         const modelTokens = await getAssToken(id);
+
+        // Model chosen for this assistant in the admin panel (models table, provider openAi).
+        // Its own key is used; otherwise the default model with the main OpenAI key.
+        const assiModel = await getActiveModel("openAi", findAssi.dataValues.model);
+        const openAiToken = assiModel || await getModelToken("openAi");
+        const targetModel = assiModel ? assiModel.model : DEFAULT_ASSISTANT_MODEL;
 
         const promptId = findAssi.dataValues.assistantId; // Expected to be pmpt_...
         const token = apiSendUserDetails.isSubscribe == 1 ? openAiToken.proToken : openAiToken.token;
         const rToken = modelTokens.reduceToken;
         const assiName = modelTokens.name;
-        
-        const targetModel = "gpt-5.6-luna"; // Forced model override
 
         console.log(`${tag} 💬 User [${body.deviceId}] interacting with Assistant [${assiName}] | Model Set: ${targetModel}`);
 
         // ── 3. Validate message body & Moderation ───────────────────────────────
         if (!body || !body.message) {
             console.log(`${tag} ❌ No message body provided`);
-            return res.status(400).json({ message: "Messages Missing" });
+            return sendError(res, "MESSAGE_MISSING");
         }
 
         console.log(`${tag} 🔄 Running moderation check...`);
         for (const item of body.message) {
             const checkStatus = await commonFunction.checkModeration(item.text);
             if (checkStatus) {
-                return res.status(400).json({
-                    message: `A "${item.text}" might refer to content that is explicit...`
-                });
+                return sendError(res, "SEXUAL_CONTENT", { text: item.text });
             }
         }
 
@@ -96,10 +101,9 @@ exports.runAssiV1 = async (req, res) => {
             requestPayload.previous_response_id = body.threadId;
         } else {
             console.log(`${tag} ✨ No previous Cache Key, starting fresh response...`);
-            // Deduct tokens when starting a completely new thread/chat
-            const notEnough = await reduceToken(body.deviceId, uniqueId, "openAi", `${assiName}`, true, rToken);
-            if (notEnough === true) {
-                return res.status(400).json({ message: "Your Quota is Over" });
+            // A new chat costs rToken; it is charged only after OpenAI answers
+            if (userDetails.reminToken < (rToken || 1)) {
+                return sendError(res, "USER_QUOTA_OVER");
             }
         }
 
@@ -128,6 +132,10 @@ exports.runAssiV1 = async (req, res) => {
 
             console.log(`${tag} ✅ Response received | newResponseId: ${newResponseId} | Model Used by OpenAI: ${returnedModel}`);
 
+            if (!body.threadId) {
+                await reduceToken(body.deviceId, uniqueId, "openAi", `${assiName}`, true, rToken);
+            }
+
             updateUserData = await checkToken(body.deviceId);
 
             const newSummriRes = {
@@ -142,18 +150,11 @@ exports.runAssiV1 = async (req, res) => {
             return res.status(200).json({ data: newSummriRes });
 
         } catch (error) {
-            const statusCode = error?.response?.status;
-            const errMsg = error?.response?.data?.error?.message || error?.message || "An error occurred";
-            console.log(`${tag} ❌ FAILED to get response | Error: ${errMsg}`);
-            console.log(`${tag} ❌ Raw OpenAI Response:`, JSON.stringify(error?.response?.data));
-            return res.status(400).json({ message: errMsg });
+            return sendProviderError(res, error, `${tag} ${targetModel}`);
         }
 
     } catch (error) {
         console.log(`${tag} ❌ Top-level unexpected error:`, error);
-        return res.status(500).json({
-            message: "Something went wrong",
-            status: 500
-        });
+        return sendError(res, "SERVER_ERROR");
     }
 };

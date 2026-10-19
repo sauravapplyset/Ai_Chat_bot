@@ -1,6 +1,7 @@
 // middleware/loggerMiddleware.js
 const logger = require('../logger/winston');
 const ApiLog = require('../model/apilog.model');
+const statusCodes = require('../helper/statusCodes');
 
 // Keep log rows small: long strings (base64 images, long chats) are cut, so a
 // 50 MB request cannot fill the database.
@@ -52,6 +53,8 @@ exports.apiLogger = (req, res, next) => {
         responseTimeMs: elapsedMs,
         cpuUserTimeMs: cpuUserMs,
         cpuSystemTimeMs: cpuSystemMs,
+        // Only once the column exists (created at startup by helper/statusCodes.js)
+        ...(res.locals.errorKey && statusCodes.isLoaded() ? { errorKey: res.locals.errorKey } : {}),
       });
     } catch (err) {
       logger.error(`DB Log Error: ${err.message}`);

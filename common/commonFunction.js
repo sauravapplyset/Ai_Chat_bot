@@ -70,6 +70,30 @@ exports.checkModeration = async (text) => {
     }
 }
 
+// Sexual content only (used by the chat route, where violence etc. in normal questions
+// must not be blocked). Fails open: a moderation outage never blocks users.
+exports.checkSexualContent = async (text) => {
+    try {
+        const modelTokens = await getModelToken("openAi");
+        const response = await axios.post(
+            "https://api.openai.com/v1/moderations",
+            { model: "omni-moderation-latest", input: text },
+            {
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${modelTokens.token}`,
+                },
+                timeout: 10000,
+            }
+        );
+        const result = response.data.results[0];
+        return !!(result.categories?.sexual || result.categories?.["sexual/minors"] || Number(result.category_scores?.sexual || 0) >= 0.3);
+    } catch (error) {
+        console.error("Error running moderation:", error.response?.data || error.message);
+        return false;
+    }
+}
+
 exports.clearUploadsDir = async () => {
     try {
         const uploadsDir = path.join(process.cwd(), 'public/uploads');

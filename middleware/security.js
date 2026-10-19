@@ -21,6 +21,7 @@
 
 const CryptoJS = require("crypto-js");
 const SecurityBan = require("../model/securityBan.model");
+const { sendError } = require("../helper/statusCodes");
 
 const toInt = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
 const MIN = 60 * 1000;
@@ -330,7 +331,7 @@ const guard = (req, res, next) => {
 
   // 5. Per-IP flood protection
   if (isRateLimited(ip, key)) {
-    return res.status(429).json({ message: "Too many requests, please try again later." });
+    return sendError(res, "TOO_MANY_REQUESTS");
   }
 
   // 5b. Per-device limit on paid AI routes (stops a stolen device signature from draining credits)
@@ -341,7 +342,7 @@ const guard = (req, res, next) => {
     if (!d || now - d.start > RATE_WINDOW_MS) {
       capSet(deviceHits, sig, { count: 1, start: now });
     } else if (++d.count > AI_RATE_LIMIT) {
-      return res.status(429).json({ message: "Too many requests, please try again later." });
+      return sendError(res, "TOO_MANY_REQUESTS");
     }
   }
 

@@ -13,8 +13,9 @@ exports.login = async (req, res) => {
                 where: { username: username }
             });
             if (findUser == null) {
+                // Same answer as a wrong password, so usernames cannot be discovered
                 res.status(401).json({
-                    message: "user is not valid",
+                    message: "invalid username or password",
                     status: 401
                 })
             } else {
@@ -40,7 +41,7 @@ exports.login = async (req, res) => {
                     })
                 } else {
                     res.status(401).json({
-                        message: "password not match",
+                        message: "invalid username or password",
                         status: 401
                     })
                 }

@@ -34,8 +34,15 @@ const apiLog = sequelize.define('apiLogs', {
         allowNull: false,
         type: DataTypes.STRING
     },
+    // Reason for an error response (helper/statusCodes.js), e.g. MODEL_BILLING_OVER
+    errorKey: {
+        allowNull: true,
+        type: DataTypes.STRING(64)
+    },
 }, {
-    tableName: 'apiLogs'
+    tableName: 'apiLogs',
+    // errorKey is written only when set, so logging keeps working before the column exists
+    omitNull: true
 });
 
 module.exports = apiLog;
