@@ -4,6 +4,7 @@ const { pick } = require("lodash");
 const { getToken, getModelToken, getAssToken } = require("../../config/manageToken");
 const AssistantModel = require("../../model/assistanceModel");
 const commonFunction = require("../../common/commonFunction");
+const { sendError } = require("../../helper/statusCodes");
 
 exports.runAssi = async (req, res) => {
     try {
@@ -68,11 +69,7 @@ exports.runAssi = async (req, res) => {
             for (const item of filedObj.contents) {
                 const checkStatus = await commonFunction.checkModeration(item.text);
                 if (checkStatus) {
-                    return res.status(400).json({
-                        message: `A "${item.text}" might refer to content that is explicit, sexual, or involves descriptions of nudity. However, sharing or promoting such text is often inappropriate and may violate community guidelines, moral standards, and even laws in some cases.
-
-If you're using the term in a different context, could you please provide more details to help me better understand what you mean?`
-                    });
+                    return sendError(res, "SEXUAL_CONTENT", { text: item.text });
                 }
             }
             const updated = body.filedObj.contents.map(obj => {

@@ -34,8 +34,9 @@ const DEFAULTS = {
     },
     SEXUAL_CONTENT: {
         title: "Sexual / explicit content",
-        httpStatus: 400,
-        message: "Your message might refer to content that is explicit, sexual, or involves descriptions of nudity. Please rephrase it and try again.",
+        // 203 (not 400) so the app and the admin logs can tell this apart from other errors
+        httpStatus: 203,
+        message: "A \"{text}\" might refer to content that is explicit, sexual, or involves descriptions of nudity. However, sharing or promoting such text is often inappropriate and may violate community guidelines, moral standards, and even laws in some cases.\n\nIf you're using the term in a different context, could you please provide more details to help me better understand what you mean?",
         matchPattern: null,
     },
     CONTENT_POLICY: {
@@ -121,7 +122,8 @@ const splitPattern = (p) =>
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
 
-const validStatus = (s) => Number.isInteger(Number(s)) && Number(s) >= 400 && Number(s) <= 599;
+// 2xx is allowed for special cases such as SEXUAL_CONTENT (203)
+const validStatus = (s) => Number.isInteger(Number(s)) && Number(s) >= 200 && Number(s) <= 599;
 
 const ensureTable = async () => {
     const [existing] = await sequelize.query(`SHOW TABLES LIKE '${TABLE}'`);
