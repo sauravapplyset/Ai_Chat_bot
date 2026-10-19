@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const FormData = require('form-data');
 const axios = require("axios");
+const { sendProviderError } = require("../../helper/statusCodes");
 const { reduceToken } = require("../../helper/common");
 const { _, pick } = require("lodash")
 const { checkToken } = require("../../helper/common");
@@ -178,10 +179,7 @@ exports.pdfSummaryBot = async (req, res) => {
                                 return;
                             }
                         } catch (error) {
-                            res.status(400).json({
-                                message: error.response.data.error.message,
-                                status: 400
-                            });
+                            sendProviderError(res, error, "[thirdparty/pdfsummary]");
                             return;
                         }
                     }
@@ -226,10 +224,7 @@ exports.pdfSummaryBot = async (req, res) => {
                     });
                 } catch (error) {
                     console.log(error);
-                    res.status(400).json({
-                        message: error.response.data.error.message,
-                        status: 400
-                    })
+                    sendProviderError(res, error, "[thirdparty/pdfsummary]");
 
                     fs.rm(req.file.path, { recursive: true, force: true }, (err) => {
                         if (err) {
@@ -319,10 +314,7 @@ exports.pdfSummaryBot = async (req, res) => {
                             }
                         } catch (error) {
                             console.log("---error--", error);
-                            res.status(400).json({
-                                message: error.response.data.error.message,
-                                status: 400
-                            });
+                            sendProviderError(res, error, "[thirdparty/pdfsummary]");
                             return;
                         }
                     }
@@ -378,11 +370,7 @@ exports.pdfSummaryBot = async (req, res) => {
                     })
                 }
             } catch (error) {
-                console.log(error.response);
-                res.status(400).json({
-                    message: error.response.data.error.message,
-                    status: 400
-                })
+                sendProviderError(res, error, "[thirdparty/pdfsummary]");
             }
         }
 

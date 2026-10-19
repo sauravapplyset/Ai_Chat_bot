@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { sendProviderError } = require("../../helper/statusCodes");
 const { checkToken, reduceToken } = require("../../helper/common");
 const { _, pick, omit } = require("lodash")
 const { getModelToken } = require("../../config/manageToken");
@@ -76,10 +77,7 @@ exports.uploadConversation = async (req, res) => {
                         }
                     });
                 } catch (error) {
-                    console.log("--------Api Error -----", error.response.data.error.message);
-                    res.status(400).json({
-                        message: error.response.data.error.message
-                    })
+                    sendProviderError(res, error, "[conversation/upload]");
                     fs.rm(req.file.path, { recursive: true, force: true }, (err) => {
                         if (err) {
                             console.error('Error deleting file:', err);
@@ -158,10 +156,7 @@ exports.uploadConversation = async (req, res) => {
                     // console.log("Assistant:", response.data);
 
                 } catch (error) {
-                    console.log("--------Api Error -----", error.response.data.detail);
-                    res.status(400).json({
-                        message: error.response.data.detail
-                    })
+                    sendProviderError(res, error, "[conversation/upload]");
                 }
             }
 
@@ -194,10 +189,7 @@ exports.uploadConversation = async (req, res) => {
                         data: response.data
                     })
                 } catch (error) {
-                    console.log("--error---",error.response.data.error.message)
-                    res.status(400).json({
-                        message: error.response.data.error.message
-                    })
+                    sendProviderError(res, error, "[conversation/upload]");
                 }
             }
 
@@ -205,10 +197,7 @@ exports.uploadConversation = async (req, res) => {
                 try {
 
                 } catch (error) {
-                    console.log("--------Api Error -----", error.response.data.error.message);
-                    res.status(400).json({
-                        message: error.response.data.error.message
-                    })
+                    sendProviderError(res, error, "[conversation/upload]");
                 }
             }
         }

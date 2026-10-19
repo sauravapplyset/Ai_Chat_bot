@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { sendProviderError } = require("../../helper/statusCodes");
 const { checkToken, reduceToken } = require("../../helper/common");
 const User = require("../../model/user.model");
 const { pick } = require("lodash");
@@ -41,9 +42,7 @@ exports.createThread = async (req, res) => {
             })
         } catch (error) {
             console.log("--error--", error)
-            res.status(400).json({
-                message: error.response.data.error.message
-            })
+            sendProviderError(res, error, "[thirdparty/threadCreate]");
         }
     } catch (error) {
         console.log(error);

@@ -4,7 +4,7 @@ const { pick } = require("lodash");
 const { getToken, getModelToken, getAssToken } = require("../../config/manageToken");
 const AssistantModel = require("../../model/assistanceModel");
 const commonFunction = require("../../common/commonFunction");
-const { sendError } = require("../../helper/statusCodes");
+const { sendError, sendProviderError } = require("../../helper/statusCodes");
 
 exports.runAssi = async (req, res) => {
     try {
@@ -58,9 +58,7 @@ exports.runAssi = async (req, res) => {
                 filedObj["threadId"] = pickThredData.id
             } catch (error) {
                 // console.log("--error--", error)
-                res.status(400).json({
-                    message: error.response.data.error.message
-                })
+                sendProviderError(res, error, "[runassi]");
             }
         }
 
@@ -98,11 +96,7 @@ exports.runAssi = async (req, res) => {
                         }
                     });
                 } catch (error) {
-                    console.log("---QUERY--", error.response.data);
-                    res.status(400).json({
-                        message: error.response.data.error.message,
-                        status: 400
-                    });
+                    sendProviderError(res, error, "[runassi]");
                 }
 
                 let runRes = ""
@@ -121,11 +115,7 @@ exports.runAssi = async (req, res) => {
                         }
                     );
                 } catch (error) {
-                    console.log("---error.response---", error)
-                    res.status(400).json({
-                        message: error.response.data.error.message,
-                        status: 400
-                    });
+                    sendProviderError(res, error, "[runassi]");
                 }
 
                 const runId = runRes.data.id;
@@ -155,11 +145,7 @@ exports.runAssi = async (req, res) => {
                             return;
                         }
                     } catch (error) {
-                        console.log("---error--", error.response.data);
-                        res.status(400).json({
-                            message: error.response.data.error.message,
-                            status: 400
-                        });
+                        sendProviderError(res, error, "[runassi]");
                     }
                 }
 
@@ -200,9 +186,7 @@ exports.runAssi = async (req, res) => {
                 })
             } catch (error) {
                 console.log("--error---", error)
-                res.status(400).json({
-                    message: error.response.data.error.message
-                })
+                sendProviderError(res, error, "[runassi]");
             }
 
         } else {

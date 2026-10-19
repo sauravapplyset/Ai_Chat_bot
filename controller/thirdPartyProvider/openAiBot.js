@@ -3,7 +3,7 @@ const { checkToken, reduceToken } = require("../../helper/common");
 const { pick } = require("lodash");
 const { getToken, getModelToken } = require("../../config/manageToken");
 const commonFunction = require("../../common/commonFunction");
-const { sendError } = require("../../helper/statusCodes");
+const { sendError, sendProviderError } = require("../../helper/statusCodes");
 const AiTool = require("../../model/aitoolModel");
 
 
@@ -135,10 +135,7 @@ exports.aiBot = async (req, res) => {
                         }
                     } catch (error) {
                         console.log("---error--", error);
-                        res.status(400).json({
-                            message: error.response.data.error.message,
-                            status: 400
-                        });
+                        sendProviderError(res, error, "[thirdparty/aibot]");
                         return;
                     }
                 }
@@ -164,9 +161,7 @@ exports.aiBot = async (req, res) => {
                     data: newSummriRes
                 })
             } catch (error) {
-                res.status(400).json({
-                    message: error.response.data.error.message
-                })
+                sendProviderError(res, error, "[thirdparty/aibot]");
             }
 
         } else {

@@ -6,6 +6,10 @@ let threadId = "thread_123"
 const commonFunction = require("../../common/commonFunction");
 const { sendError, sendProviderError } = require("../../helper/statusCodes");
 
+// Provider names as written in the models table vary in case ("openAi" / "OpenAi")
+const PROVIDERS = { openai: "openAi", gemini: "Gemini", mistralai: "MistralAi", deepseek: "DeepSeek" };
+const normalizeProvider = (p) => PROVIDERS[String(p || "").toLowerCase()] || p;
+
 const USER_FIELDS = ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate'];
 const TAG = "[converzation]";
 
@@ -27,7 +31,8 @@ exports.converzationProvider = async (req, res) => {
     try {
         const uniqueId = req.headers.uniqueid
         const body = req.body
-        const { deviceId, apiProvider, modelId } = body
+        const { deviceId, modelId } = body
+        const apiProvider = normalizeProvider(body.apiProvider)
         let conversationsId = body.conversationsId
         let updateUserData
 
@@ -205,6 +210,41 @@ exports.converzationProvider = async (req, res) => {
                 })
             } catch (error) {
                 return sendProviderError(res, error, `${TAG} MistralAi`);
+            }
+        }
+
+        if (apiProvider === "DeepSeek") {
+            try {
+                // DeepSeek is text only and OpenAI-compatible
+                const text = body.message.filter((m) => m && m.type != "image").map((m) => m.text).filter(Boolean).join("\n");
+                let chatCompletions = await axios({
+                    url: 'https://api.deepseek.com/chat/completions',
+                    method: 'post',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    data: {
+                        "model": model,
+                        "messages": [{ role: "user", content: text }]
+                    }
+                });
+
+                if (body.threadId == null || body.threadId == "") {
+                    await reduceToken(deviceId, uniqueId, apiProvider, "converzationDeepSeek", true, rToken);
+                }
+
+                const choice = chatCompletions.data.choices[0]["message"];
+                updateUserData = await checkToken(deviceId)
+
+                return res.status(200).json({
+                    data: {
+                        content: { role: choice.role, text: choice.content, threadId: threadId },
+                        userDetails: pick(updateUserData, USER_FIELDS),
+                    }
+                })
+            } catch (error) {
+                return sendProviderError(res, error, `${TAG} DeepSeek ${model}`);
             }
         }
 

@@ -5,7 +5,7 @@ const { _, pick, omit } = require("lodash")
 const crypto = require("crypto");
 const { getToken } = require("../../config/manageToken");
 const commonFunction = require("../../common/commonFunction");
-const { sendError } = require("../../helper/statusCodes");
+const { sendError, sendProviderError } = require("../../helper/statusCodes");
 
 exports.provider = async (req, res) => {
     try {
@@ -64,9 +64,7 @@ exports.provider = async (req, res) => {
                         })
                     } catch (error) {
                         // console.log("--error--", error)
-                        res.status(400).json({
-                            message: error.response.data.error.message
-                        })
+                        sendProviderError(res, error, "[thirdparty/provider]");
                     }
                 }
                 if (apiType === "threadRun") {
@@ -103,9 +101,7 @@ exports.provider = async (req, res) => {
                             })
                         } catch (error) {
                             // console.log("Thread Run Error",error);
-                            res.status(400).json({
-                                message: error.response.data.error.message
-                            })
+                            sendProviderError(res, error, "[thirdparty/provider]");
                         }
 
                     } else {
@@ -146,9 +142,7 @@ exports.provider = async (req, res) => {
                                 data: getRunStatus
                             })
                         } catch (error) {
-                            res.status(400).json({
-                                message: error.response.data.error.message
-                            })
+                            sendProviderError(res, error, "[thirdparty/provider]");
                         }
 
                     } else {
@@ -210,10 +204,7 @@ exports.provider = async (req, res) => {
                                 data: chatComRes
                             })
                         } catch (error) {
-                            console.log("Chat Completion Error", error.response.data.error.message);
-                            res.status(400).json({
-                                message: error.response.data.error.message
-                            })
+                            sendProviderError(res, error, "[thirdparty/provider]");
                         }
 
                     } else {
@@ -295,10 +286,7 @@ exports.provider = async (req, res) => {
                             data: mistralRes
                         })
                     } catch (error) {
-                        console.log("---error--", error.response.data)
-                        res.status(400).json({
-                            message: error.response.data.message,
-                        })
+                        sendProviderError(res, error, "[thirdparty/provider]");
                     }
                 }
             }
@@ -376,19 +364,7 @@ exports.provider = async (req, res) => {
                             data: resChatCompletions
                         })
                     } catch (error) {
-                        if (error.response.data.error.code === 503) {
-                            res.status(503).json({
-                                message: "The model is overloaded. Please try again later.",
-                            })
-                        } else if (error.response.data.error.code === 404) {
-                            res.status(400).json({
-                                message: error.response.data.error.message,
-                            })
-                        } else {
-                            res.status(400).json({
-                                message: error.response.data.error.message,
-                            })
-                        }
+                        sendProviderError(res, error, "[thirdparty/provider]");
                     }
                 }
             }
@@ -471,9 +447,7 @@ exports.provider = async (req, res) => {
                         })
                     } catch (error) {
                         console.log("--error---", error)
-                        res.status(400).json({
-                            message: error.response.data.message,
-                        })
+                        sendProviderError(res, error, "[thirdparty/provider]");
                     }
                 }
             }
