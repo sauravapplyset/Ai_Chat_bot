@@ -356,6 +356,43 @@ const guard = (req, res, next) => {
   next();
 };
 
+/* ---------- New device registrations per IP ---------- */
+// SECRET_KEY leaked in a public repo zip, so a script can sign requests and register
+// unlimited fake devices, each getting free tokens. Real users register one device.
+// Limit new devices per IP (per /64 for IPv6) per day; existing devices are never affected.
+const NEW_DEVICES_PER_DAY = Number.isFinite(Number(process.env.NEW_DEVICES_PER_IP_PER_DAY))
+  ? Number(process.env.NEW_DEVICES_PER_IP_PER_DAY)
+  : 20;                                                                   // 0 = no limit
+const DAY = 24 * HOUR;
+const newDevices = new Map(); // key -> { count, start }
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, d] of newDevices) if (now - d.start > DAY) newDevices.delete(k);
+}, HOUR).unref();
+
+// True when this IP may register one more device; counts it
+exports.allowNewDevice = (req) => {
+  if (NEW_DEVICES_PER_DAY <= 0) return true;
+  const ip = clientIp(req);
+  if (ALLOWED_IPS.has(ip.toLowerCase()) || isGoogleProxy(ip)) return true;
+  const key = keyOf(ip);
+  const now = Date.now();
+  const d = newDevices.get(key);
+  if (!d || now - d.start > DAY) {
+    capSet(newDevices, key, { count: 1, start: now });
+    return true;
+  }
+  // Many real users share one WARP exit IP
+  const limit = isSharedEgress(ip) ? NEW_DEVICES_PER_DAY * 5 : NEW_DEVICES_PER_DAY;
+  if (d.count >= limit) {
+    securityLog(`[security] 🚫 New device refused for ${key} | ${d.count} devices registered from this IP today`);
+    return false;
+  }
+  d.count += 1;
+  return true;
+};
+
 // A bug in the guard must never take the API down: fail open and keep serving
 exports.securityGuard = (req, res, next) => {
   let passed = false;

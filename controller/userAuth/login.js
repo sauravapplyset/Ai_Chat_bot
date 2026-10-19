@@ -6,6 +6,8 @@ const shortid = require('shortid');
 const moment = require("moment");
 const { Op, fn, col, where, literal } = require("sequelize");
 const { checkToken } = require("../../helper/common");
+const { allowNewDevice } = require("../../middleware/security");
+const { sendError } = require("../../helper/statusCodes");
 
 
 exports.login = async (req, res) => {
@@ -17,6 +19,9 @@ exports.login = async (req, res) => {
             where: { deviceId: deviceId }
         });
         if (findUser == null) {
+            if (!allowNewDevice(req)) {
+                return sendError(res, "TOO_MANY_REQUESTS");
+            }
             let findPlan = await Plan.findOne({
                 where: { planId: `new-user` },
             })

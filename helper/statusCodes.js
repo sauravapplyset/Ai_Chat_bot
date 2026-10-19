@@ -124,6 +124,14 @@ const splitPattern = (p) =>
 const validStatus = (s) => Number.isInteger(Number(s)) && Number(s) >= 400 && Number(s) <= 599;
 
 const ensureTable = async () => {
+    const [existing] = await sequelize.query(`SHOW TABLES LIKE '${TABLE}'`);
+    if (!existing.length) {
+        // First rollout: the admin panel used to save every assistant with the fixed
+        // placeholder 'gpt-4o-mini', which this API ignored (it always used the default).
+        // Mark those as 'default' so they keep running on the default model.
+        // The admin panel migration does the same when it creates the table first.
+        await sequelize.query("UPDATE `assistant` SET `model` = 'default' WHERE `model` = 'gpt-4o-mini'");
+    }
     await sequelize.query(
         `CREATE TABLE IF NOT EXISTS \`${TABLE}\` (
             \`id\` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
