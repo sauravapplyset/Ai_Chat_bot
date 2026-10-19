@@ -28,9 +28,11 @@ const DEFAULTS = {
     },
     MODEL_BILLING_OVER: {
         title: "AI provider billing / credits over",
-        httpStatus: 400,
+        // 205 so admins can spot "our OpenAI / Gemini balance is finished" in the API Logs.
+        // Express sends no body with 205, so the app gets an empty response.
+        httpStatus: 205,
         message: "This model is temporarily unavailable. Please try again later or choose another model.",
-        matchPattern: "insufficient_quota\nbilling_hard_limit_reached\nbilling_not_active\nexceeded your current quota\ncredit balance is too low\npayment required",
+        matchPattern: "insufficient_quota\nbilling_hard_limit_reached\nbilling_not_active\nbilling_disabled\nexceeded your current quota\ncheck your plan and billing\ncredit balance is too low\npayment required\nbilling",
     },
     SEXUAL_CONTENT: {
         title: "Sexual / explicit content",
@@ -225,6 +227,8 @@ const errorText = (error) => {
     const e = data?.error;
     return [
         e?.code, e?.type, e?.status, e?.message, e?.param,
+        // Gemini puts the real cause here, e.g. reason BILLING_DISABLED
+        Array.isArray(e?.details) && e.details.map((d) => d?.reason).filter(Boolean).join(" "),
         data?.detail && JSON.stringify(data.detail), data?.message, data?.type,
         error?.code, error?.message,
     ]
