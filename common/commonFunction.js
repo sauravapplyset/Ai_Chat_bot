@@ -1,6 +1,8 @@
 const CryptoJS = require("crypto-js");
 const axios = require("axios");
 const { getToken, getModelToken } = require("../config/manageToken");
+const Model = require("../model/aiModel.model");
+const appSettings = require("../helper/appSettings");
 const path = require('path');
 const fs = require('fs/promises');
 
@@ -35,36 +37,44 @@ exports.decrypt = async (text) => {
     return originalText;
 };
 
+// Sexual score from which a message is refused (admin panel: Content Check)
+const sexualThreshold = () => {
+    const t = Number(appSettings.get("moderation.sexualThreshold"));
+    return t > 0 && t <= 1 ? t : Number(appSettings.DEFAULTS["moderation.sexualThreshold"]);
+};
+
+// OpenAI key for the moderation API: the Free key of the model chosen in the admin
+// panel, otherwise the first active OpenAI model (as before)
+const moderationKey = async () => {
+    const id = Number(appSettings.get("moderation.keyModelId"));
+    if (id) {
+        const row = await Model.findOne({ where: { id } });
+        if (row && row.dataValues.token) return row.dataValues.token;
+    }
+    return (await getModelToken("openAi")).token;
+};
+
+// Moderation result for one text: { flagged, categories, category_scores }
+const moderate = async (text) => {
+    const response = await axios.post(
+        "https://api.openai.com/v1/moderations",
+        { model: appSettings.get("moderation.model"), input: text },
+        {
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${await moderationKey()}`,
+            },
+            timeout: 10000,
+        }
+    );
+    return response.data.results[0];
+};
+
+// Any flagged content, or a sexual score at the threshold (assistants, thirdparty routes)
 exports.checkModeration = async (text) => {
     try {
-        const modelTokens = await getModelToken("openAi");
-
-        // const openAiToken = await getToken('openAi');
-        const token = modelTokens.token
-        const response = await axios.post(
-            "https://api.openai.com/v1/moderations",
-            {
-                model: "omni-moderation-latest",
-                input: text
-            },
-            {
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                },
-            }
-        );
-        let flagged = response.data.results[0].flagged == false
-        if (flagged) {
-            if (Number(response.data.results[0]["category_scores"]["sexual"].toFixed(2)) >= 0.3) {
-                flagged = true
-            } else {
-                flagged = false
-            }
-        } else {
-            flagged = true;
-        }
-        return flagged;
+        const result = await moderate(text);
+        return !!(result.flagged || Number(Number(result.category_scores?.sexual || 0).toFixed(2)) >= sexualThreshold());
     } catch (error) {
         console.error("Error running moderation:", error.response?.data || error.message);
     }
@@ -74,20 +84,8 @@ exports.checkModeration = async (text) => {
 // must not be blocked). Fails open: a moderation outage never blocks users.
 exports.checkSexualContent = async (text) => {
     try {
-        const modelTokens = await getModelToken("openAi");
-        const response = await axios.post(
-            "https://api.openai.com/v1/moderations",
-            { model: "omni-moderation-latest", input: text },
-            {
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${modelTokens.token}`,
-                },
-                timeout: 10000,
-            }
-        );
-        const result = response.data.results[0];
-        return !!(result.categories?.sexual || result.categories?.["sexual/minors"] || Number(result.category_scores?.sexual || 0) >= 0.3);
+        const result = await moderate(text);
+        return !!(result.categories?.sexual || result.categories?.["sexual/minors"] || Number(result.category_scores?.sexual || 0) >= sexualThreshold());
     } catch (error) {
         console.error("Error running moderation:", error.response?.data || error.message);
         return false;
