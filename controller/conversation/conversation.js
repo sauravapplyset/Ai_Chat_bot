@@ -5,6 +5,7 @@ const Model = require("../../model/aiModel.model");
 let threadId = "thread_123"
 const commonFunction = require("../../common/commonFunction");
 const { sendError, sendProviderError } = require("../../helper/statusCodes");
+const { isModelTester } = require("../../helper/modelTesters");
 
 // Provider names as written in the models table vary in case ("openAi" / "OpenAi")
 const PROVIDERS = { openai: "openAi", gemini: "Gemini", mistralai: "MistralAi", deepseek: "DeepSeek" };
@@ -47,10 +48,15 @@ exports.converzationProvider = async (req, res) => {
             return sendError(res, "USER_QUOTA_OVER");
         }
 
-        // Inactive models are hidden from /aiModel/getAll and cannot be used either
-        const findModel = await Model.findOne({ where: { modelType: apiProvider, id: Number(modelId), isActive: 1 } })
+        // Inactive models are hidden from /aiModel/getAll and cannot be used either,
+        // except by test devices trying a new model before it is switched on
+        const tester = isModelTester(deviceId)
+        const findModel = await Model.findOne({ where: { modelType: apiProvider, id: Number(modelId), ...(tester ? {} : { isActive: 1 }) } })
         if (findModel == null) {
             return sendError(res, "MODEL_NOT_FOUND");
+        }
+        if (!findModel.dataValues.isActive) {
+            console.log(`${TAG} 🧪 Test device ${deviceId} using inactive model ${findModel.dataValues.model}`);
         }
         const token = apiSendUserDetails.isSubscribe == 1 ? findModel.dataValues.proToken : findModel.dataValues.token
         const model = findModel.dataValues.model

@@ -1,12 +1,12 @@
 const AiModel = require("../../model/aiModel.model");
+const { isModelTester } = require("../../helper/modelTesters");
 
 exports.aiProvider = async (req, res) => {
     try {
 
+        // Test devices also see inactive models, so a new model can be tried in the app
         const findAllModel = await AiModel.findAll({
-            where: {
-                isActive: 1,
-            },
+            where: isModelTester(req.body?.deviceId) ? {} : { isActive: 1 },
             attributes: [
                 'id',
                 'modelName',

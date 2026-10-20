@@ -5,6 +5,7 @@ const { getModelToken, getActiveModel, getAssToken } = require("../../config/man
 const AssistantModel = require("../../model/assistanceModel");
 const commonFunction = require("../../common/commonFunction");
 const { sendError, sendProviderError } = require("../../helper/statusCodes");
+const { isModelTester } = require("../../helper/modelTesters");
 
 // Used when an assistant has no model chosen in the admin panel, or its model is inactive
 const DEFAULT_ASSISTANT_MODEL = process.env.ASSISTANT_DEFAULT_MODEL || "gpt-5.6-luna";
@@ -51,7 +52,8 @@ exports.runAssiV1 = async (req, res) => {
 
         // Model chosen for this assistant in the admin panel (models table, provider openAi).
         // Its own key is used; otherwise the default model with the main OpenAI key.
-        const assiModel = await getActiveModel("openAi", findAssi.dataValues.model);
+        // Test devices also get the assistant's model while it is still inactive.
+        const assiModel = await getActiveModel("openAi", findAssi.dataValues.model, isModelTester(body.deviceId));
         const openAiToken = assiModel || await getModelToken("openAi");
         const targetModel = assiModel ? assiModel.model : DEFAULT_ASSISTANT_MODEL;
 

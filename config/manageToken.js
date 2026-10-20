@@ -17,9 +17,10 @@ async function getModelToken(type, model) {
 }
 
 // Model row for an assistant: its own model when that model is active, else null
-async function getActiveModel(type, model) {
+// includeInactive: test devices may run models that are not switched on yet
+async function getActiveModel(type, model, includeInactive = false) {
     if (!model) return null;
-    const config = await Model.findOne({ where: { modelType: type, model: model, isActive: 1 } });
+    const config = await Model.findOne({ where: { modelType: type, model: model, ...(includeInactive ? {} : { isActive: 1 }) } });
     return config ? config.dataValues : null;
 }
 
