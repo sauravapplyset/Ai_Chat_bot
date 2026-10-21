@@ -18,7 +18,12 @@ const DEFAULTS = {
     "moderation.sexualThreshold": "0.3",
     // id of the models row whose Free key calls the moderation API; empty = first active OpenAI model
     "moderation.keyModelId": "",
+    // Moderation endpoint; only https on an allowed host (MODERATION_HOSTS), the OpenAI key is sent to it
+    "moderation.url": "https://api.openai.com/v1/moderations",
 };
+
+// Hosts the moderation URL may point to; same list as AppSetting::MODERATION_HOSTS in the admin panel
+const MODERATION_HOSTS = ["api.openai.com"];
 
 let values = new Map();
 
@@ -61,4 +66,4 @@ const get = (key) => {
     return v != null && String(v).trim() !== "" ? String(v).trim() : DEFAULTS[key];
 };
 
-module.exports = { DEFAULTS, get };
+module.exports = { DEFAULTS, MODERATION_HOSTS, get };

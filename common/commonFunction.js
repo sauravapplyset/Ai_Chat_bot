@@ -54,10 +54,22 @@ const moderationKey = async () => {
     return (await getModelToken("openAi")).token;
 };
 
+// Moderation URL from the admin panel. The OpenAI key goes with it, so anything that is
+// not https on an allowed host falls back to the default instead of leaking the key.
+const moderationUrl = () => {
+    const url = appSettings.get("moderation.url");
+    try {
+        const u = new URL(url);
+        if (u.protocol === "https:" && appSettings.MODERATION_HOSTS.includes(u.hostname.toLowerCase())) return url;
+    } catch (e) {}
+    console.error(`Moderation URL not allowed, using default: ${url}`);
+    return appSettings.DEFAULTS["moderation.url"];
+};
+
 // Moderation result for one text: { flagged, categories, category_scores }
 const moderate = async (text) => {
     const response = await axios.post(
-        "https://api.openai.com/v1/moderations",
+        moderationUrl(),
         { model: appSettings.get("moderation.model"), input: text },
         {
             headers: {
