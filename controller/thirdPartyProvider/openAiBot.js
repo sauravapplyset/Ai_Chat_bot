@@ -48,8 +48,14 @@ exports.aiBot = async (req, res) => {
 
         const kind = type === "spellCheckerBot" || /spell/i.test(tool.name) ? "spellChecker" : "summarizer";
 
+        // Spell Checker: mark the text as the thing to check, so a text that reads like a
+        // question is corrected instead of answered
+        const toolInput = kind === "spellChecker" && !tool.promptId
+            ? input.map((p) => ({ type: "input_text", text: `Check this text:\n"""\n${p.text}\n"""` }))
+            : input;
+
         try {
-            const text = await respond(tool, kind, input, threadId || undefined);
+            const text = await respond(tool, kind, toolInput, threadId || undefined);
 
             // Charged only once OpenAI has answered
             await reduceToken(deviceId, uniqueId, "Bot", type || kind, true)
