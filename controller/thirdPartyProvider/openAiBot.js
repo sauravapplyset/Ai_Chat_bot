@@ -9,11 +9,14 @@ const USER_FIELDS = ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 
 // type
 //     summarizerBot
 //     spellCheckerBot
-// id: tool hashId (AI Tools in the admin panel); threadId: conversation from /threadCreate (optional)
+// hashId (or id): tool in AI Tools in the admin panel; the app sends no type, so the tool name
+// decides Spell Checker vs summarizer. threadId: conversation from /threadCreate (optional)
 
 exports.aiBot = async (req, res) => {
     try {
-        const { type, role, content, deviceId, id } = req.body;
+        const { type, role, content, deviceId } = req.body;
+        // The app sends the tool as hashId (older clients as id)
+        const id = req.body.hashId || req.body.id;
         // Old thread_ ids (Assistants API) no longer exist; only conversations (conv_) carry context
         const threadId = req.body && /^conv_/.test(req.body.threadId || "") ? req.body.threadId : "";
         const uniqueId = req.headers['uniqueid'];

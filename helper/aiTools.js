@@ -8,6 +8,7 @@
 //     otherwise the built-in instructions below (old asst_ instructions can no longer be read)
 
 const axios = require("axios");
+const { Op } = require("sequelize");
 const Model = require("../model/aiModel.model");
 const AiTool = require("../model/aitoolModel");
 
@@ -34,10 +35,14 @@ const INSTRUCTIONS = {
 const headers = (token) => ({ Authorization: `Bearer ${token}`, "Content-Type": "application/json" });
 
 // models row (key + model name) for a tool: the tool's own model, else the first OpenAI model.
-// Active rows first, so a model still being tested never supplies the key for live traffic.
+// The admin panel saves a tool's model by its display name (modelName, e.g. "GPT-4o mini"),
+// so both columns are matched. Active rows first, so a model still being tested never
+// supplies the key for live traffic.
 const modelRow = async (model) => {
     const order = [["isActive", "DESC"], ["id", "ASC"]];
-    let row = model ? await Model.findOne({ where: { modelType: "openAi", model }, order }) : null;
+    let row = model
+        ? await Model.findOne({ where: { modelType: "openAi", [Op.or]: [{ model }, { modelName: model }] }, order })
+        : null;
     if (!row) row = await Model.findOne({ where: { modelType: "openAi" }, order });
     return row ? row.dataValues : null;
 };
