@@ -20,7 +20,7 @@ const removeUpload = (file) => {
 
 // type "upload": PDF in field "image" (+ optional text) → new conversation with the PDF, first answer.
 // type "run": threadId (the conversation) + text → next answer; without text → all answers so far.
-// hashId (optional): the tool in AI Tools (its model, key and token cost).
+// hashId: the tool in AI Tools (its prompt, model, key and token cost); the app always sends it.
 exports.pdfSummaryBot = async (req, res) => {
     try {
         const uniqueId = req.headers['uniqueid'];
@@ -28,8 +28,10 @@ exports.pdfSummaryBot = async (req, res) => {
         const userData = await checkToken(body.deviceId)
         const getMetadata = userData.metadata != null ? JSON.parse(userData.metadata) : {}
 
-        const tool = await resolveTool(body.hashId, userData);
-        if (!tool) {
+        // The tool runs only on its prompt (pmpt_) set as Assistant ID in AI Tools
+        const tool = body.hashId ? await resolveTool(body.hashId, userData) : null;
+        if (!tool || !tool.promptId) {
+            console.log(`${TAG} ❌ No prompt for tool ${body.hashId || "(no hashId)"}${tool ? ` (${tool.name}: Assistant ID is not pmpt_)` : ""}`);
             removeUpload(req.file);
             return sendError(res, "ASSISTANT_NOT_FOUND");
         }
@@ -60,8 +62,12 @@ exports.pdfSummaryBot = async (req, res) => {
 
                 const threadUploadId = await createConversation(tool.token)
                 const question = typeof body.text === "string" && body.text.trim() ? body.text : "Summarize this PDF."
-                const text = await respond(tool, "pdf", [
+                // The model cannot see a file's type, and the dashboard prompt refuses anything that
+                // is not a PDF ("Only PDF documents are supported" about half the time), so the file
+                // is named as a PDF next to it
+                const text = await respond(tool, [
                     { type: "input_file", file_id: fileId },
+                    { type: "input_text", text: `Attached PDF: ${req.file.originalname}` },
                     { type: "input_text", text: question },
                 ], threadUploadId)
 
@@ -95,7 +101,7 @@ exports.pdfSummaryBot = async (req, res) => {
 
             try {
                 if (body.text) {
-                    const text = await respond(tool, "pdf", [{ type: "input_text", text: body.text }], body.threadId)
+                    const text = await respond(tool, [{ type: "input_text", text: body.text }], body.threadId)
                     const updateUserData = await checkToken(body.deviceId)
                     return res.status(200).json({
                         data: {

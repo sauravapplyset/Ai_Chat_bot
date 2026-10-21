@@ -6,11 +6,9 @@ const { resolveTool, respond, textParts } = require("../../helper/aiTools");
 
 const USER_FIELDS = ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate'];
 
-// type
-//     summarizerBot
-//     spellCheckerBot
-// hashId (or id): tool in AI Tools in the admin panel; the app sends no type, so the tool name
-// decides Spell Checker vs summarizer. threadId: conversation from /threadCreate (optional)
+// Text Summarizer, Spell Checker and any other text tool.
+// hashId (or id): tool in AI Tools in the admin panel; it runs on the tool's prompt (pmpt_).
+// threadId: conversation from /threadCreate (optional). type is only a label for token history.
 
 exports.aiBot = async (req, res) => {
     try {
@@ -33,8 +31,11 @@ exports.aiBot = async (req, res) => {
                 message: "Your Quota is Over"
             })
         }
-        const tool = await resolveTool(id, userDetails);
-        if (!tool) {
+        // A tool runs only on its prompt: no hashId, unknown/inactive tool or an Assistant ID
+        // that is not a pmpt_ id is refused
+        const tool = id ? await resolveTool(id, userDetails) : null;
+        if (!tool || !tool.promptId) {
+            console.log(`[thirdparty/aibot] ❌ No prompt for tool ${id || "(no hashId)"}${tool ? ` (${tool.name}: Assistant ID is not pmpt_)` : ""}`);
             return sendError(res, "ASSISTANT_NOT_FOUND");
         }
 
@@ -49,19 +50,11 @@ exports.aiBot = async (req, res) => {
             }
         }
 
-        const kind = type === "spellCheckerBot" || /spell/i.test(tool.name) ? "spellChecker" : "summarizer";
-
-        // Spell Checker: mark the text as the thing to check, so a text that reads like a
-        // question is corrected instead of answered
-        const toolInput = kind === "spellChecker" && !tool.promptId
-            ? input.map((p) => ({ type: "input_text", text: `Check this text:\n"""\n${p.text}\n"""` }))
-            : input;
-
         try {
-            const text = await respond(tool, kind, toolInput, threadId || undefined);
+            const text = await respond(tool, input, threadId || undefined);
 
             // Charged only once OpenAI has answered
-            await reduceToken(deviceId, uniqueId, "Bot", type || kind, true)
+            await reduceToken(deviceId, uniqueId, "Bot", type || tool.name, true)
 
             const updateUserData = await checkToken(deviceId)
             res.status(200).json({
