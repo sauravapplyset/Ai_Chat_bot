@@ -1,35 +1,29 @@
-const axios = require("axios");
-const { sendProviderError } = require("../../helper/statusCodes");
+const { sendError, sendProviderError } = require("../../helper/statusCodes");
 const { checkToken, reduceToken } = require("../../helper/common");
 const User = require("../../model/user.model");
 const { pick } = require("lodash");
-const { getModelToken } = require("../../config/manageToken");
+const { resolveTool, createConversation } = require("../../helper/aiTools");
 
 
+// Starts a chat for the AI tools. The Assistants API (threads) is shut down, so this creates an
+// OpenAI conversation; its id (conv_...) is returned as before and the app sends it back as threadId.
+// hashId (optional): the tool, so the conversation is created with that tool's OpenAI key.
 exports.createThread = async (req, res) => {
     try {
-        const { deviceId, } = req.body;
+        const { deviceId, hashId } = req.body;
         const uniqueId = req.headers.uniqueid
         const notusedToken = await checkToken(deviceId)
-        const openAiToken = await getModelToken("openAi");
+        const tool = await resolveTool(hashId, notusedToken);
+        if (!tool) {
+            return sendError(res, "ASSISTANT_NOT_FOUND");
+        }
         try {
-
-            let createThread = await axios({
-                url: 'https://api.openai.com/v1/threads',
-                method: 'post',
-                headers: {
-                    Authorization: `Bearer ${notusedToken.isSubscribe == 1 ? openAiToken.proToken : openAiToken.token}`,
-                    'OpenAI-Beta': 'assistants=v2',
-                    'Content-Type': 'application/json'
-                }
-            });
-            const pickThredData = pick(createThread.data, 'id')
-            createThread = pickThredData
+            const createThread = { id: await createConversation(tool.token) }
 
             let getMetadata = notusedToken.metadata != null ? JSON.parse(notusedToken.metadata) : {}
             getMetadata["openAi"] = createThread.id
             await reduceToken(deviceId, uniqueId, "OpenAi", "createThread", true)
-            updateUserData = await checkToken(deviceId)
+            const updateUserData = await checkToken(deviceId)
             createThread["userDetails"] = pick(updateUserData, ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate']);
 
             await User.update(
@@ -41,7 +35,6 @@ exports.createThread = async (req, res) => {
                 data: createThread
             })
         } catch (error) {
-            console.log("--error--", error)
             sendProviderError(res, error, "[thirdparty/threadCreate]");
         }
     } catch (error) {

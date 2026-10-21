@@ -1,382 +1,130 @@
 const path = require('path');
 const fs = require('fs');
 const FormData = require('form-data');
-const axios = require("axios");
-const { sendProviderError } = require("../../helper/statusCodes");
+const { sendError, sendProviderError } = require("../../helper/statusCodes");
 const { reduceToken } = require("../../helper/common");
-const { _, pick } = require("lodash")
+const { pick } = require("lodash")
 const { checkToken } = require("../../helper/common");
 const User = require("../..//model/user.model");
-const { getToken, getModelToken } = require("../../config/manageToken");
-const commonFunction = require("../../common/commonFunction");
-const AiTool = require("../../model/aitoolModel");
+const { resolveTool, respond, createConversation, assistantMessages, uploadFile } = require("../../helper/aiTools");
 
+const USER_FIELDS = ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate'];
+const TAG = "[thirdparty/pdfsummary]";
 
+const removeUpload = (file) => {
+    if (!file) return;
+    fs.rm(file.path, { recursive: true, force: true }, (err) => {
+        if (err) console.error('Error deleting file:', err);
+    });
+};
 
+// type "upload": PDF in field "image" (+ optional text) → new conversation with the PDF, first answer.
+// type "run": threadId (the conversation) + text → next answer; without text → all answers so far.
+// hashId (optional): the tool in AI Tools (its model, key and token cost).
 exports.pdfSummaryBot = async (req, res) => {
     try {
-        const header = req.headers
-        const uniqueId = header['uniqueid'];
-        const userData = await checkToken(req.body.deviceId)
+        const uniqueId = req.headers['uniqueid'];
+        const body = req.body
+        const userData = await checkToken(body.deviceId)
         const getMetadata = userData.metadata != null ? JSON.parse(userData.metadata) : {}
-        let updateUserData
 
-        const openAiPdfToken = await getToken('openAiPdf');
-
-        let assistantId
-        let rToken
-        let modelTokens = await getModelToken("openAi");
-        const hashId = req.body.hashId
-        if (!hashId) {
-            assistantId = "asst_pHnxNwc9yrNq3njeFL0bnAgG"
-        } else {
-            const findAssistantId = await AiTool.findOne({
-                where: { isActive: 1, hashId: hashId },
-                attributes: ["assistantId", "model", "reduceToken"]
-            });
-            assistantId = findAssistantId?.assistantId
-            modelTokens = await getModelToken("openAi", findAssistantId.dataValues.model);
-            rToken = findAssistantId.dataValues.reduceToken
+        const tool = await resolveTool(body.hashId, userData);
+        if (!tool) {
+            removeUpload(req.file);
+            return sendError(res, "ASSISTANT_NOT_FOUND");
         }
+        const rToken = tool.reduceToken
 
-        const token = userData.isSubscribe == 1 ? modelTokens.proToken : modelTokens.token
-
-        if (req.body.type === "upload") {
-            if (userData.reminToken == 0) {
-                res.status(400).json({
-                    message: "Your Quota is Over"
-                })
-            } else {
-                try {
-                    const result = await reduceToken(req.body.deviceId, uniqueId, "Bot", "pdfSummaryBot-Upload", true, rToken)
-                    if (result) {
-                        res.status(400).json({
-                            message: "Your Quota is Over"
-                        })
-                    }
-                    // Pdf Upload
-                    const fileExtName = path.extname(req.file.originalname).toLowerCase()
-                    const mimeType = [".pdf"]
-                    if (!mimeType.includes(fileExtName)) {
-                        const message = `Please upload only .pdf but got ${fileExtName}.`;
-                        res.status(400).json({
-                            message: message,
-                            status: 400
-                        })
-                        fs.rm(req.file.path, { recursive: true, force: true }, (err) => {
-                            if (err) {
-                                console.error('Error deleting file:', err);
-                            } else {
-                                console.log('File deleted successfully');
-                            }
-                        });
-
-                    }
-
-
-                    const form = new FormData();
-                    form.append('file', fs.createReadStream(req.file.path),
-                        //  {
-                        //     filename: path.basename(req.file.path),
-                        //     contentType: 'application/pdf',
-                        // }
-                    );
-                    form.append('purpose', 'assistants');
-
-                    let fileUpload = await axios.post('https://api.openai.com/v1/files', form, {
-                        headers: {
-                            ...form.getHeaders(),
-                            Authorization: `Bearer ${token}`,
-                        },
-                    });
-                    fileUpload = fileUpload.data
-                    const fileId = fileUpload.id
-
-                    // Thread  Create 
-                    let createThread = await axios.post(
-                        'https://api.openai.com/v1/threads',
-                        {},
-                        {
-                            headers: {
-                                Authorization: `Bearer ${token}`,
-                                'OpenAI-Beta': 'assistants=v2',
-                                'Content-Type': 'application/json',
-                            },
-                        }
-                    );
-                    createThread = createThread.data
-                    const threadUploadId = createThread.id
-
-                    // const checkStatus = await commonFunction.checkModeration(req.body.text);
-                    // if (checkStatus) {
-                    //   return res.status(400).json({
-                    //     message: "Might contain sensitive content.",
-                    //   });
-                    // }
-
-                    // Thread in send Message and find attachments 
-                    let sendMessageResponse = await axios({
-                        url: `https://api.openai.com/v1/threads/${threadUploadId}/messages`,
-                        method: 'post',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'OpenAI-Beta': 'assistants=v2'
-                        },
-                        data: {
-                            role: 'user',
-                            content: req.body.text,
-                            attachments: [
-                                {
-                                    file_id: fileId,
-                                    tools: [{ type: 'file_search' }],
-                                },
-                            ],
-                        }
-
-                    })
-                    sendMessageResponse = sendMessageResponse.data
-
-                    // Thread Run
-                    const runRes = await axios.post(
-                        `https://api.openai.com/v1/threads/${threadUploadId}/runs`,
-                        {
-                            assistant_id: assistantId,
-                        },
-                        {
-                            headers: {
-                                Authorization: `Bearer ${token}`,
-                                'OpenAI-Beta': 'assistants=v2',
-                                'Content-Type': 'application/json',
-                            },
-                        }
-                    );
-                    const runUploadId = runRes.data.id;
-
-                    // ✅ Poll run status
-                    let runStatus = 'queued';
-                    while (runStatus !== 'completed') {
-                        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-                        try {
-                            const pollRes = await axios.get(
-                                `https://api.openai.com/v1/threads/${threadUploadId}/runs/${runUploadId}`,
-                                {
-                                    headers: {
-                                        Authorization: `Bearer ${token}`,
-                                        'OpenAI-Beta': 'assistants=v2',
-                                        'Content-Type': 'application/json'
-                                    },
-                                }
-                            );
-
-                            runStatus = pollRes.data.status;
-                            if (runStatus === 'failed' || runStatus === 'cancelled') {
-                                console.log("--runStatus---", runStatus)
-                                res.status(400).json({
-                                    message: `Run ${runStatus}`,
-                                    status: 400
-                                })
-                                return;
-                            }
-                        } catch (error) {
-                            sendProviderError(res, error, "[thirdparty/pdfsummary]");
-                            return;
-                        }
-                    }
-
-
-                    getMetadata["pdfObj"] = { threadId: threadUploadId, runId: runUploadId, fileId: fileId }
-                    await User.update(
-                        { metadata: JSON.stringify(getMetadata) },
-                        { where: { deviceId: req.body.deviceId } }
-                    );
-
-                    let answerRes = await axios.get(
-                        `https://api.openai.com/v1/threads/${threadUploadId}/messages`,
-                        {
-                            headers: {
-                                Authorization: `Bearer ${token}`,
-                                'OpenAI-Beta': 'assistants=v2',
-                                'Content-Type': 'application/json'
-                            },
-                        }
-                    );
-                    answerRes = answerRes.data
-                    const formatted = answerRes.data.filter(item => item.role === 'assistant').map(item => ({
-                        role: item.role,
-                        text: item.content[0]?.text?.value || ""
-                    }));
-
-
-                    updateUserData = await checkToken(req.body.deviceId)
-
-                    res.status(200).json({
-                        data: { threadId: threadUploadId, content: formatted, userDetails: pick(updateUserData, ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate']) },
-                        status: 200
-                    });
-
-                    fs.rm(req.file.path, { recursive: true, force: true }, (err) => {
-                        if (err) {
-                            console.error('Error deleting file:', err);
-                        } else {
-                            console.log('File deleted successfully');
-                        }
-                    });
-                } catch (error) {
-                    console.log(error);
-                    sendProviderError(res, error, "[thirdparty/pdfsummary]");
-
-                    fs.rm(req.file.path, { recursive: true, force: true }, (err) => {
-                        if (err) {
-                            console.error('Error deleting file:', err);
-                        } else {
-                            console.log('File deleted successfully');
-                        }
-                    });
-                }
+        if (body.type === "upload") {
+            if (!req.file) {
+                return res.status(400).json({ message: "Please upload a .pdf file.", status: 400 })
             }
-        }
-
-        if (req.body.type === "run") {
-            updateUserData = await checkToken(req.body.deviceId)
-            const apiSendUserDetails = pick(updateUserData, ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate']);
+            const fileExtName = path.extname(req.file.originalname).toLowerCase()
+            if (fileExtName !== ".pdf") {
+                removeUpload(req.file);
+                return res.status(400).json({ message: `Please upload only .pdf but got ${fileExtName}.`, status: 400 })
+            }
+            if (!(userData.reminToken > 0) || userData.reminToken < (rToken || 1)) {
+                removeUpload(req.file);
+                return res.status(400).json({ message: "Your Quota is Over" })
+            }
 
             try {
-                const body = req.body
-                // const checkStatus = await commonFunction.checkModeration(body.text);
-                // if (checkStatus) {
-                //     return res.status(400).json({
-                //       message: "Might contain sensitive content.",
-                //     });
-                // }
+                const form = new FormData();
+                form.append('file', fs.createReadStream(req.file.path), {
+                    filename: req.file.originalname || path.basename(req.file.path),
+                    contentType: 'application/pdf',
+                });
+                form.append('purpose', 'user_data');
+                const fileId = await uploadFile(tool.token, form)
 
-                const checkFileAndThred = (getMetadata && getMetadata.pdfObj && getMetadata.pdfObj) &&
-                    body.threadId === getMetadata.pdfObj.threadId &&
-                    body.fileId === getMetadata.pdfObj.fileId
+                const threadUploadId = await createConversation(tool.token)
+                const question = typeof body.text === "string" && body.text.trim() ? body.text : "Summarize this PDF."
+                const text = await respond(tool, "pdf", [
+                    { type: "input_file", file_id: fileId },
+                    { type: "input_text", text: question },
+                ], threadUploadId)
 
+                // Charged only once OpenAI has answered
+                await reduceToken(body.deviceId, uniqueId, "Bot", "pdfSummaryBot-Upload", true, rToken)
+
+                getMetadata["pdfObj"] = { threadId: threadUploadId, fileId: fileId }
+                await User.update(
+                    { metadata: JSON.stringify(getMetadata) },
+                    { where: { deviceId: body.deviceId } }
+                );
+
+                const updateUserData = await checkToken(body.deviceId)
+                res.status(200).json({
+                    data: { threadId: threadUploadId, fileId: fileId, content: [{ role: "assistant", text }], userDetails: pick(updateUserData, USER_FIELDS) },
+                    status: 200
+                });
+            } catch (error) {
+                sendProviderError(res, error, TAG);
+            } finally {
+                removeUpload(req.file);
+            }
+            return;
+        }
+
+        if (body.type === "run") {
+            // Chats started before the Assistants API shutdown (thread_ ids) cannot be continued
+            if (!/^conv_/.test(body.threadId || "")) {
+                return res.status(400).json({ message: "This chat has expired. Please upload the PDF again.", status: 400 })
+            }
+
+            try {
                 if (body.text) {
-                    let sendMessage = await axios({
-                        url: `https://api.openai.com/v1/threads/${body.threadId}/messages`,
-                        method: 'post',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'OpenAI-Beta': 'assistants=v2'
-                        },
+                    const text = await respond(tool, "pdf", [{ type: "input_text", text: body.text }], body.threadId)
+                    const updateUserData = await checkToken(body.deviceId)
+                    return res.status(200).json({
                         data: {
-                            role: 'user',
-                            content: [{
-                                type: 'text',
-                                'text': body.text
-                            }],
-                            // content: body.text,
-                        }
-
-                    })
-
-                    const runRes = await axios.post(
-                        `https://api.openai.com/v1/threads/${body.threadId}/runs`,
-                        {
-                            assistant_id: assistantId,
-                        },
-                        {
-                            headers: {
-                                Authorization: `Bearer ${token}`,
-                                'OpenAI-Beta': 'assistants=v2',
-                                'Content-Type': 'application/json',
-                            },
-                        }
-                    );
-                    const runUploadId = runRes.data.id;
-                    let runStatus = 'queued';
-                    while (runStatus !== 'completed') {
-                        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-                        try {
-                            const pollRes = await axios.get(
-                                `https://api.openai.com/v1/threads/${body.threadId}/runs/${runUploadId}`,
-                                {
-                                    headers: {
-                                        Authorization: `Bearer ${token}`,
-                                        'OpenAI-Beta': 'assistants=v2',
-                                        'Content-Type': 'application/json'
-                                    },
-                                }
-                            );
-
-                            runStatus = pollRes.data.status;
-                            console.log("--runStatus---", runStatus)
-                            if (runStatus === 'failed' || runStatus === 'cancelled') {
-                                res.status(400).json({
-                                    message: `Run ${runStatus}`,
-                                    status: 400
-                                })
-                                return;
-                            }
-                        } catch (error) {
-                            console.log("---error--", error);
-                            sendProviderError(res, error, "[thirdparty/pdfsummary]");
-                            return;
-                        }
-                    }
-
-                    let answerRes = await axios.get(
-                        `https://api.openai.com/v1/threads/${body.threadId}/messages`,
-                        {
-                            headers: {
-                                Authorization: `Bearer ${token}`,
-                                'OpenAI-Beta': 'assistants=v2',
-                                'Content-Type': 'application/json'
-                            },
-                        }
-                    );
-                    answerRes = answerRes.data
-                    const senMesFormatted = [{
-                        role: answerRes.data[0].role,
-                        text: answerRes.data[0]["content"][0]["text"]["value"] || ""
-                    }];
-
-                    res.status(200).json({
-                        data: {
-                            content: senMesFormatted,
-                            userDetails: apiSendUserDetails
-                        },
-                        status: 200
-                    })
-
-                } else {
-                    let answerRes = await axios.get(
-                        `https://api.openai.com/v1/threads/${body.threadId}/messages`,
-                        {
-                            headers: {
-                                Authorization: `Bearer ${token}`,
-                                'OpenAI-Beta': 'assistants=v2',
-                                'Content-Type': 'application/json'
-                            },
-                        }
-                    );
-                    answerRes = answerRes.data
-
-                    const formatted = answerRes.data.filter(item => item.role === 'assistant').map(item => ({
-                        role: item.role,
-                        text: item.content[0]?.text?.value || ""
-                    }));
-
-                    res.status(200).json({
-                        data: {
-                            content: formatted,
-                            userDetails: apiSendUserDetails
+                            content: [{ role: "assistant", text }],
+                            userDetails: pick(updateUserData, USER_FIELDS)
                         },
                         status: 200
                     })
                 }
+
+                const formatted = await assistantMessages(tool.token, body.threadId)
+                return res.status(200).json({
+                    data: {
+                        content: formatted,
+                        userDetails: pick(userData, USER_FIELDS)
+                    },
+                    status: 200
+                })
             } catch (error) {
-                sendProviderError(res, error, "[thirdparty/pdfsummary]");
+                return sendProviderError(res, error, TAG);
             }
         }
 
+        removeUpload(req.file);
+        res.status(400).json({ message: "Invalid Input", status: 400 })
     } catch (error) {
         console.log(error);
-
+        removeUpload(req.file);
+        if (res.headersSent) return;
         res.status(500).json({
             message: "Something went wrong",
             status: 500

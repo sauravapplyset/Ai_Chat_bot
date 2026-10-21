@@ -1,176 +1,70 @@
-const axios = require("axios");
 const { checkToken, reduceToken } = require("../../helper/common");
 const { pick } = require("lodash");
-const { getToken, getModelToken } = require("../../config/manageToken");
 const commonFunction = require("../../common/commonFunction");
 const { sendError, sendProviderError } = require("../../helper/statusCodes");
-const AiTool = require("../../model/aitoolModel");
+const { resolveTool, respond, textParts } = require("../../helper/aiTools");
 
+const USER_FIELDS = ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate'];
 
 // type
 //     summarizerBot
 //     spellCheckerBot
+// id: tool hashId (AI Tools in the admin panel); threadId: conversation from /threadCreate (optional)
 
 exports.aiBot = async (req, res) => {
     try {
-        const summarizerBotToken = await getToken('openAi-summarizerBot');
-        const spellCheckerBotToken = await getToken('openAi-spellCheckerBot');
+        const { type, role, content, deviceId, id } = req.body;
+        // Old thread_ ids (Assistants API) no longer exist; only conversations (conv_) carry context
+        const threadId = req.body && /^conv_/.test(req.body.threadId || "") ? req.body.threadId : "";
+        const uniqueId = req.headers['uniqueid'];
 
-        const summary_Ass_ID = JSON.parse(summarizerBotToken.metadata).assId
-        const spell_Ass_ID = JSON.parse(spellCheckerBotToken.metadata).assId
-
-        const { type, role, content, message, deviceId, id } = req.body;
-        let threadId = req.body && req.body.threadId ? req.body.threadId : "";
-        const header = req.headers
-        const uniqueId = header['uniqueid'];
-        const userDetails = await checkToken(req.body.deviceId)
-        const apiSendUserDetails = pick(userDetails, ['id', 'totalToken', 'usedToken', 'reminToken', 'planType', 'isSubscribe', 'expireDate']);
-
-        const result = await reduceToken(deviceId, uniqueId, "Bot", type, true,)
-        if (result) {
-            res.status(400).json({
-                message: "Your Quota is Over"
-            })
-        }
-
-        if (role && content) {
-
-            for (const item of content) {
-                const checkStatus = await commonFunction.checkModeration(item.text);
-                if (checkStatus) {
-                    return sendError(res, "SEXUAL_CONTENT", { text: item.text });
-                }
-            }
-
-            let assistantId
-            let modelTokens = await getModelToken("openAi");
-            if (!id) {
-                assistantId = type === "summarizerBot" ? summary_Ass_ID : spell_Ass_ID
-            } else {
-                const findAssistantId = await AiTool.findOne({
-                    where: { isActive: 1, hashId: id },
-                    attributes: ["assistantId", "model"]
-                });
-                assistantId = findAssistantId?.assistantId
-                modelTokens = await getModelToken("openAi", findAssistantId?.token);
-            }
-
-            const token = apiSendUserDetails.isSubscribe == 1 ? modelTokens.proToken : modelTokens.token
-
-            // Run Assitant Ai Tool
-            try {
-
-                // Create Thread
-                if (!threadId) {
-                    let createThread = await axios({
-                        url: 'https://api.openai.com/v1/threads',
-                        method: 'post',
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                            'OpenAI-Beta': 'assistants=v2',
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    const pickThredData = pick(createThread.data, 'id')
-                    threadId = pickThredData.id
-                } else {
-                    threadId = threadId
-                }
-
-                const newSummriRes = {}
-                let runSummari = await axios({
-                    url: `https://api.openai.com/v1/threads/${threadId}/messages`,
-                    method: 'post',
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        'OpenAI-Beta': 'assistants=v2',
-                        'Content-Type': 'application/json'
-                    },
-                    data: {
-                        role: role,
-                        content: content
-                    }
-                });
-                newSummriRes["id"] = runSummari.data.id
-
-                const runSummRes = await axios.post(
-                    `https://api.openai.com/v1/threads/${threadId}/runs`,
-                    {
-                        assistant_id: assistantId,
-                    },
-                    {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                            'OpenAI-Beta': 'assistants=v2',
-                            'Content-Type': 'application/json',
-                        },
-                    }
-                );
-                const runUploadId = runSummRes.data.id;
-
-                let runStatus = 'queued';
-                while (runStatus !== 'completed') {
-                    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-                    try {
-                        const pollRes = await axios.get(
-                            `https://api.openai.com/v1/threads/${threadId}/runs/${runUploadId}`,
-                            {
-                                headers: {
-                                    Authorization: `Bearer ${token}`,
-                                    'OpenAI-Beta': 'assistants=v2',
-                                    'Content-Type': 'application/json'
-                                },
-                            }
-                        );
-
-                        runStatus = pollRes.data.status;
-                        if (runStatus === 'failed' || runStatus === 'cancelled') {
-                            console.log("--runStatus summari----", runStatus)
-                            res.status(400).json({
-                                message: `Run ${runStatus}`,
-                                status: 400
-                            })
-                            return;
-                        }
-                    } catch (error) {
-                        console.log("---error--", error);
-                        sendProviderError(res, error, "[thirdparty/aibot]");
-                        return;
-                    }
-                }
-
-                let answerRes = await axios.get(
-                    `https://api.openai.com/v1/threads/${threadId}/messages`,
-                    {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                            'OpenAI-Beta': 'assistants=v2',
-                            'Content-Type': 'application/json'
-                        },
-                    }
-                );
-                answerRes = answerRes.data
-                newSummriRes["content"] = [{
-                    role: answerRes.data[0].role,
-                    text: answerRes.data[0]["content"][0]["text"]["value"] || ""
-                }];
-                newSummriRes["userDetails"] = apiSendUserDetails
-
-                res.status(200).json({
-                    data: newSummriRes
-                })
-            } catch (error) {
-                sendProviderError(res, error, "[thirdparty/aibot]");
-            }
-
-        } else {
-            res.status(400).json({
+        if (!role || !content) {
+            return res.status(400).json({
                 message: "Invalid Input"
             })
         }
 
+        const userDetails = await checkToken(deviceId)
+        if (!(userDetails.reminToken > 0)) {
+            return res.status(400).json({
+                message: "Your Quota is Over"
+            })
+        }
+        const tool = await resolveTool(id, userDetails);
+        if (!tool) {
+            return sendError(res, "ASSISTANT_NOT_FOUND");
+        }
 
+        const input = textParts(content);
+        if (input.length == 0) {
+            return sendError(res, "MESSAGE_MISSING");
+        }
+        for (const item of input) {
+            const checkStatus = await commonFunction.checkModeration(item.text);
+            if (checkStatus) {
+                return sendError(res, "SEXUAL_CONTENT", { text: item.text });
+            }
+        }
+
+        const kind = type === "spellCheckerBot" || /spell/i.test(tool.name) ? "spellChecker" : "summarizer";
+
+        try {
+            const text = await respond(tool, kind, input, threadId || undefined);
+
+            // Charged only once OpenAI has answered
+            await reduceToken(deviceId, uniqueId, "Bot", type || kind, true)
+
+            const updateUserData = await checkToken(deviceId)
+            res.status(200).json({
+                data: {
+                    id: threadId,
+                    content: [{ role: "assistant", text }],
+                    userDetails: pick(updateUserData, USER_FIELDS)
+                }
+            })
+        } catch (error) {
+            sendProviderError(res, error, "[thirdparty/aibot]");
+        }
     } catch (error) {
         console.log("---error---", error)
         res.status(500).json({
