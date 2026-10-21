@@ -82,8 +82,19 @@ const respond = async (tool, kind, content, conversation) => {
     if (tool.promptId) payload.prompt = { id: tool.promptId };
     else payload.instructions = INSTRUCTIONS[kind];
     if (conversation) payload.conversation = conversation;
-    const res = await axios.post(`${OPENAI}/responses`, payload, { headers: headers(tool.token), timeout: TIMEOUT_MS });
-    return replyText(res.data);
+    const send = () => axios.post(`${OPENAI}/responses`, payload, { headers: headers(tool.token), timeout: TIMEOUT_MS });
+    try {
+        return replyText((await send()).data);
+    } catch (error) {
+        // A dashboard prompt saved with a reasoning model keeps its reasoning settings; a
+        // non-reasoning model chosen in the admin panel (e.g. GPT-4o mini) is then rejected
+        // ("reasoning.* is not supported with this model"). Use the prompt's own model instead.
+        const err = error.response?.data?.error;
+        if (!tool.promptId || error.response?.status !== 400 || !/^reasoning/.test(err?.param || "")) throw error;
+        console.log(`[aiTools] ${tool.name}: model ${tool.model} rejected by prompt ${tool.promptId} (${err.message}); using the prompt's model`);
+        delete payload.model;
+        return replyText((await send()).data);
+    }
 };
 
 // New conversation (replaces POST /v1/threads); returns its id (conv_...)
