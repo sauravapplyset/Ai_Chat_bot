@@ -18,16 +18,10 @@ process.on("unhandledRejection", (err) => {
    IMPORTS
 ========================= */
 
-console.log("✅ STEP 1 - Starting App");
 
 const express = require("express");
-console.log("✅ STEP 2 - Express Loaded");
-
 const cors = require("cors");
-console.log("✅ STEP 3 - Cors Loaded");
-
 const cookieParser = require("cookie-parser");
-console.log("✅ STEP 4 - Cookie Parser Loaded");
 
 /* =========================
    APP INIT
@@ -80,7 +74,6 @@ app.use(express.urlencoded({
   limit: "50mb",
 }));
 
-console.log("✅ STEP 5 - Middlewares Loaded");
 
 /* =========================
    HEALTH CHECK ROUTE
@@ -102,55 +95,27 @@ try {
   // app.use(apiLogger);
 
   const userRoutes = require("./routes/user.routes");
-  console.log("✅ user.routes Loaded");
-
   const thirdPartyProvidor = require("./routes/thirdParty.routes");
-  console.log("✅ thirdParty.routes Loaded");
-
   const subscription = require("./routes/subscription.routes");
-  console.log("✅ subscription.routes Loaded");
-
   const manageToken = require("./routes/manageToken.routes");
-  console.log("✅ manageToken.routes Loaded");
-
   const assistantRoutes = require("./routes/assistant.routes");
-  console.log("✅ assistant.routes Loaded");
-
   const aiModelRoutes = require("./routes/aimodel.routes");
-  console.log("✅ aimodel.routes Loaded");
-
   const mediaRoutes = require("./routes/media.routes");
-  console.log("✅ media.routes Loaded");
-
   const conversationRoutes = require("./routes/conversation.routes");
-  console.log("✅ conversation.routes Loaded");
-
   const adminRoutes = require("./routes/admin.routes");
-  console.log("✅ admin.routes Loaded");
-
   /* =========================
      ROUTES REGISTER
   ========================= */
 
   app.use("/api/user", userRoutes);
-
   app.use("/api/thirdparty", thirdPartyProvidor);
-
   app.use("/api/plan", subscription);
-
   app.use("/api/manage", manageToken);
-
   app.use("/api/assi", assistantRoutes);
-
   app.use("/api/aiModel", aiModelRoutes);
-
   app.use("/api/media", mediaRoutes);
-
   app.use("/api/conversation", conversationRoutes);
-
   app.use("/api/admin", adminRoutes);
-
-  console.log("✅ STEP 7 - All Routes Registered");
 
 } catch (err) {
 

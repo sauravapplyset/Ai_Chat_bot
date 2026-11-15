@@ -145,7 +145,7 @@ exports.converzationProvider = async (req, res) => {
         if (apiProvider === "Gemini") {
             try {
                 let chatCompletions = await axios({
-                    url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${token}`,
+                    url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${token}`,
                     method: 'post',
                     headers: {
                         'Accept': 'application/json',
@@ -179,7 +179,8 @@ exports.converzationProvider = async (req, res) => {
                     }
                 })
             } catch (error) {
-                return sendProviderError(res, error, `${TAG} Gemini`);
+                console.log("::::TAG::::",error.response?.data)
+                // return sendProviderError(res, error, `${TAG} Gemini`);
             }
         }
 
@@ -194,7 +195,7 @@ exports.converzationProvider = async (req, res) => {
                         'Accept': 'application/json'
                     },
                     data: {
-                        "model": "pixtral-12b-latest",
+                        "model": model,
                         "messages": [inputObj],
                         "temperature": 0.7,
                         "max_tokens": 256
