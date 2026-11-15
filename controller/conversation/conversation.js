@@ -52,12 +52,15 @@ exports.converzationProvider = async (req, res) => {
         // except by test devices trying a new model before it is switched on
         const tester = isModelTester(deviceId)
         const findModel = await Model.findOne({ where: { modelType: apiProvider, id: Number(modelId), ...(tester ? {} : { isActive: 1 }) } })
+        console.log(":::findModel::::",findModel)
         if (findModel == null) {
             return sendError(res, "MODEL_NOT_FOUND");
         }
         if (!findModel.dataValues.isActive) {
             console.log(`${TAG} 🧪 Test device ${deviceId} using inactive model ${findModel.dataValues.model}`);
         }
+        console.log("::::::::",findModel.dataValues)
+
         const token = apiSendUserDetails.isSubscribe == 1 ? findModel.dataValues.proToken : findModel.dataValues.token
         const model = findModel.dataValues.model
         const rToken = findModel.dataValues.reduceToken
@@ -216,7 +219,9 @@ exports.converzationProvider = async (req, res) => {
                     }
                 })
             } catch (error) {
-                return sendProviderError(res, error, `${TAG} MistralAi`);
+                console.log("::::MistralAi:::::",error)
+
+                // return sendProviderError(res, error, `${TAG} MistralAi`);
             }
         }
 
@@ -251,7 +256,8 @@ exports.converzationProvider = async (req, res) => {
                     }
                 })
             } catch (error) {
-                return sendProviderError(res, error, `${TAG} DeepSeek ${model}`);
+                console.log("::::DeepSeek:::::",error)
+                // return sendProviderError(res, error, `${TAG} DeepSeek ${model}`);
             }
         }
 
