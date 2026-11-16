@@ -369,7 +369,7 @@ exports.provider = async (req, res) => {
                 }
             }
 
-            if (apiProvider === "DeepSeek") {
+            if (apiProvider === "Deepseek") {
                 const { apiType, contents } = body.filedObj
 
                 if (apiType === "createThread") {
