@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const { getToken } = require("../../config/manageToken");
 const commonFunction = require("../../common/commonFunction");
 const { sendError, sendProviderError } = require("../../helper/statusCodes");
+const Model = require("../../model/aiModel.model");
 
 exports.provider = async (req, res) => {
     try {
@@ -413,15 +414,21 @@ exports.provider = async (req, res) => {
                     }));
 
                     try {
+                        // Key and model come from the models table (admin panel), same as /api/conversation
+                        const deepSeekModel = await Model.findOne({ where: { modelType: "DeepSeek", isActive: 1 }, order: [['id', 'ASC']] });
+                        if (!deepSeekModel) {
+                            return sendError(res, "MODEL_NOT_FOUND");
+                        }
+
                         let chatCompletions = await axios({
                             url: `https://api.deepseek.com/chat/completions`,
                             method: 'post',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${notusedToken.isSubscribe == 1 ? deepSeekToken.subscribe_token : deepSeekToken.token}`,
+                                'Authorization': `Bearer ${notusedToken.isSubscribe == 1 ? deepSeekModel.proToken : deepSeekModel.token}`,
                             },
                             data: {
-                                "model": notusedToken.isSubscribe == 1 ? deepSeekToken.subscribe_model : deepSeekToken.model,
+                                "model": deepSeekModel.model,
                                 "messages": newContents,
                                 "stream": false
 
