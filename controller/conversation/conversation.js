@@ -213,14 +213,14 @@ exports.converzationProvider = async (req, res) => {
                         "model": model,
                         "messages": [inputObj],
                         "temperature": 0.7,
-                        "max_tokens": 256
+                        "max_tokens": 4096
                     }
                 });
 
                 const reply = mistralReply(chatCompletions.data);
                 if (!reply.text || !reply.text.trim()) {
                     console.log(`${TAG} ❌ Mistral returned no answer text | model: ${model} | finish_reason: ${reply.finishReason}`);
-                    return sendError(res, "SERVER_ERROR");   // khaali jawab par token nahi katega
+                    return sendError(res, "SERVER_ERROR");
                 }
 
                 if (body.threadId == null || body.threadId == "") {
