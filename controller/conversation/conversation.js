@@ -28,6 +28,18 @@ const openAiReply = (data) => {
     };
 };
 
+// Reply text of a Mistral chat completion. Reasoning models send content as an
+// array: [{type:"thinking",...}, {type:"text",text}]. Only "text" chunks are the answer.
+const mistralReply = (data) => {
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content;
+    const text = typeof content == "string"
+        ? content
+        : (content || []).filter((c) => c && c.type == "text").map((c) => c.text).join("");
+    return { role: choice?.message?.role || "assistant", text, finishReason: choice?.finish_reason };
+};
+
+
 exports.converzationProvider = async (req, res) => {
     try {
         const uniqueId = req.headers.uniqueid
@@ -205,11 +217,18 @@ exports.converzationProvider = async (req, res) => {
                     }
                 });
 
+                const reply = mistralReply(chatCompletions.data);
+                if (!reply.text || !reply.text.trim()) {
+                    console.log(`${TAG} ❌ Mistral returned no answer text | model: ${model} | finish_reason: ${reply.finishReason}`);
+                    return sendError(res, "SERVER_ERROR");   // khaali jawab par token nahi katega
+                }
+
                 if (body.threadId == null || body.threadId == "") {
                     await reduceToken(deviceId, uniqueId, apiProvider, "converzationMistralAi", true, rToken);
                 }
 
-                const contentRes = { role: chatCompletions.data.choices[0]["message"]["role"], text: chatCompletions.data.choices[0]["message"]["content"], threadId: threadId }
+                const contentRes = { role: reply.role, text: reply.text, threadId: threadId }
+
                 updateUserData = await checkToken(deviceId)
 
                 return res.status(200).json({
